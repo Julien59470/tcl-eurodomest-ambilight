@@ -25,6 +25,8 @@ public final class Settings {
     public boolean approved(){return pref.getBoolean("approved",false);}
     public boolean rgbic(){return pref.getBoolean("rgbic",false);}
     public int uiSegments(){return pref.getInt("uiSegments",20);}
+    public int intervalMs(){return pref.getInt("interval_ms",333);}
+    public void setIntervalMs(int millis){if(millis!=200&&millis!=250&&millis!=333&&millis!=500&&millis!=667)throw new IllegalArgumentException("Cadence invalide");pref.edit().putInt("interval_ms",millis).apply();}
     public int rotation(){return pref.getInt("rotation",0);}
     public boolean reverse(){return pref.getBoolean("reverse",false);}
     public void setRgbic(boolean enabled){pref.edit().putBoolean("rgbic",enabled).apply();}
@@ -81,10 +83,14 @@ public final class Settings {
             .putLong("runtime_invalid",invalid).putLong("runtime_sent",sent)
             .putString("runtime_color",lastColor).apply();
     }
+    public void telemetry(long failures,long ackMs,long lastAgeMs){pref.edit().putLong("runtime_failures",failures).putLong("runtime_ack_ms",ackMs).putLong("runtime_frame_age_ms",lastAgeMs).apply();}
     public String summary(){
         return pref.getString("runtime_state","Service arrêté")+"\nPaquets UDP : "+pref.getLong("runtime_packets",0)
             +"  | invalides : "+pref.getLong("runtime_invalid",0)
             +"  | commandes envoyées : "+pref.getLong("runtime_sent",0)
-            +"\nCouleur moyenne : "+pref.getString("runtime_color","aucune");
+            +"\nCouleur moyenne : "+pref.getString("runtime_color","aucune")
+            +"\nErreurs Tuya : "+pref.getLong("runtime_failures",0)
+            +" | derniere reponse : "+pref.getLong("runtime_ack_ms",0)+" ms"
+            +" | age de l image : "+pref.getLong("runtime_frame_age_ms",0)+" ms";
     }
 }

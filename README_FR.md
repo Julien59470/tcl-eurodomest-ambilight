@@ -127,3 +127,24 @@ Les codes de référence des protocoles proviennent de :
 - https://developer.android.com/develop/background-work/services/fgs/service-types
 
 Application réalisée sur mesure, indépendante et expérimentale. Pas d'abonnement, pas de nouveau contrôleur ni de PC à laisser allumé.
+
+
+## Version expérimentale 0.3.0 — fluidité et SmartTube
+
+La v0.3 a l'identifiant Android distinct fr.ambilight.eurodomest.rgbic.v03 :
+elle s'installe à côté de la v0.2. Ne pas publier la Local Key. Il faut la
+ressaisir uniquement sur la TV dans l'application v0.3.
+
+- Cadence Tuya : 667/500/333/250/200 ms minimum (1,5/2/3/4/5 Hz).
+  333 ms par défaut, sans garantie sur les délais de réponse de l'Eurodomest.
+- Réception UDP dernière trame uniquement, quatre zones RGBIC.
+- Statistiques : erreurs Tuya, dernière réponse, âge de la trame reçue.
+- Test couleur tournante de huit secondes directement en Tuya (aucune capture UAL).
+  Le programme s'arrête à la première erreur et affiche la cadence réelle.
+- Retour arrière : fermer 0.3 et relancer la v0.2.
+- Universal Ambient Light pour SmartTube 4K : commencer 10 FPS / Low 64 px,
+  smoothing Responsive 100–150 ms, delay 0, output 20 Hz, average color OFF.
+  Si 4K fluide, tester 15 FPS et/ou Medium 128 px. Layout sur trois côtés :
+  16 gauche + 32 haut + 16 droite + 0 bas (orientation à vérifier).
+- Tester la même vidéo SmartTube sans capture pour isoler les ralentissements
+  dus à MediaProjection. Les codecs AV1, VP9 et AVC peuvent être comparés.

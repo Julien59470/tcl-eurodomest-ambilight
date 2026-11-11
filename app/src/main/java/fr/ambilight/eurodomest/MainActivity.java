@@ -41,7 +41,7 @@ public final class MainActivity extends Activity {
     private CheckBox boot,force24;
     private TextView status,output,subtitle;
     private Button confirm,confirmRgbic;
-    private Spinner segments,rotation;
+    private Spinner segments,rotation,cadence;
     private CheckBox reverse;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final ExecutorService tasks=Executors.newSingleThreadExecutor();
@@ -88,7 +88,7 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BG);
         LinearLayout root=vertical();root.setPadding(px(40),px(22),px(40),px(36));scroll.addView(root);
         TextView title=text("AMBILIGHT  |  TCL + EURODOMEST",27,true);title.setTextColor(ACCENT);add(root,title);
-        subtitle=text("Pont UDP Raw → Tuya local • Prototype 0.2 • RGBIC expérimental",17,false);add(root,subtitle);
+        subtitle=text("Pont UDP Raw → Tuya local • Prototype 0.3 • RGBIC fluide et diagnostic",17,false);add(root,subtitle);
         LinearLayout feed=section(root,"1 • Réception des couleurs");
         status=text("Chargement…",17,false);add(feed,status);
         button("Démarrer l’écoute UDP (sans écrire tant que non validé)",feed,()->{try{BridgeService.start(this);msg("Récepteur activé");}catch(Exception e){error("Démarrage bloqué : "+kind(e));}});
@@ -143,13 +143,29 @@ public final class MainActivity extends Activity {
         confirmRgbic.setEnabled(false);
         button("Revenir à la couleur globale",rgbicBlock,()->{cfg.setRgbic(false);BridgeService.stop(this);msg("RGBIC désactivé, revenir à UDP et Tuya global : redémarrer l'écoute.");});
         add(rgbicBlock,text("État RGBIC : "+(cfg.rgbic()?"activé (à tester en mouvement)":"non activé"),16,false));
+        LinearLayout speed=section(root,"5 • Cadence et diagnostic des freezes");
+        add(speed,text("Cadence Tuya : commencer par 333 ms (3 Hz). Augmenter seulement si les réponses restent rapides et sans erreurs.",16,false));
+        cadence=new Spinner(this);
+        String[] rates={"667 ms (1,5 Hz)","500 ms (2 Hz)","333 ms (3 Hz)","250 ms (4 Hz)","200 ms (5 Hz)"};
+        int[] delays={667,500,333,250,200};
+        ArrayAdapter<String> rateAdapt=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,rates);
+        rateAdapt.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        cadence.setAdapter(rateAdapt);
+        for(int i=0;i<delays.length;i++)if(cfg.intervalMs()==delays[i])cadence.setSelection(i);
+        add(speed,cadence);
+        button("Appliquer la cadence sans effacer les identifiants",speed,()->{
+            cfg.setIntervalMs(delays[cadence.getSelectedItemPosition()]);
+            msg("Cadence enregistrée : "+cfg.intervalMs()+" ms. Observer les erreurs et le délai de réponse. Le service l'applique sans redémarrage.");
+        });
+        button("Test RGBIC TOURNANT 8 secondes (sans Universal)",speed,this::askRgbicSpin);
+        add(speed,text("Test moteur indépendant de SmartTube : si le mouvement gèle ici, la limite vient du réseau/boîtier ou de notre client Tuya, pas de la capture d'écran. Arrêter la réception UDP avant le test.",15,false));
         boot=new CheckBox(this);boot.setText("Démarrer le pont après démarrage Android (uniquement après validation)");
         boot.setTextColor(WHITE);boot.setTextSize(17);boot.setChecked(cfg.autoBoot());add(testing,boot);
         button("Enregistrer le choix de démarrage automatique",testing,()->{
             if(boot.isChecked()&&!cfg.approved()){error("Confirmer le test physique avant d'activer le démarrage automatique.");boot.setChecked(false);return;}
             cfg.setBoot(boot.isChecked());msg("Préférence enregistrée. Redémarrage Android complet à tester.");
         });
-        LinearLayout logs=section(root,"5 • Diagnostic et protection");
+        LinearLayout logs=section(root,"6 • Diagnostic et protection");
         output=text("Aucun diagnostic encore exécuté.",16,false);output.setTextIsSelectable(true);add(logs,output);
         button("Effacer les identifiants et réinitialiser l’application",logs,()->new AlertDialog.Builder(this)
             .setTitle("Effacer la configuration ?")
@@ -275,6 +291,45 @@ public final class MainActivity extends Activity {
             .setMessage("As-tu réellement VU quatre sections du ruban de couleurs différentes (rouge / vert / bleu / jaune) ? Ne pas confirmer si le ruban est uniforme.")
             .setPositiveButton("Oui, 4 couleurs",(d,w)->{cfg.setRgbic(true);confirmRgbic.setEnabled(false);msg("RGBIC 4 zones activé. Démarrer l'écoute UDP puis Universal Ambient Light avec Send Average Color désactivé.");})
             .setNegativeButton("Non",(d,w)->{cfg.setRgbic(false);confirmRgbic.setEnabled(false);msg("Test non confirmé, mode global conservé.");}).show();
+    }
+    private void askRgbicSpin(){
+        if(!cfg.approved()||!cfg.rgbic()){
+            error("Valider la couleur globale puis le test statique à quatre couleurs avant l'animation.");return;
+        }
+        if(testInProgress){error("Un test est déjà en cours.");return;}
+        new AlertDialog.Builder(this).setTitle("Animation RGBIC locale")
+            .setMessage("Fait tourner les quatre couleurs sur le ruban pendant 8 secondes, sans Universal ni capture d'écran. Mesure la réponse Tuya et s'arrête à la première erreur. Le dernier état des LED peut rester affiché.")
+            .setPositiveButton("Tester",(d,w)->spinRgbic())
+            .setNegativeButton("Annuler",null).show();
+    }
+    private void spinRgbic(){
+        testInProgress=true;BridgeService.stop(this);
+        msg("Animation RGBIC en cours : 8 secondes. Observer le ruban et la fluidité.");
+        tasks.execute(()->{
+            int[][] base={{255,0,0},{0,255,0},{0,0,255},{255,255,0}};
+            int sent=0;long total=0,max=0;String fault="";
+            try(TuyaClient client=new TuyaClient(cfg.id(),cfg.ip(),cfg.secret(),cfg.version())){
+                long end=android.os.SystemClock.elapsedRealtime()+8000;
+                while(android.os.SystemClock.elapsedRealtime()<end){
+                    int[][] zones=new int[4][3];
+                    for(int z=0;z<4;z++)zones[z]=base[(z+sent)%4].clone();
+                    long before=android.os.SystemClock.elapsedRealtime();
+                    client.setFourColors(zones,cfg.uiSegments());
+                    long duration=android.os.SystemClock.elapsedRealtime()-before;
+                    total+=duration;max=Math.max(max,duration);sent++;
+                    long sleep=Math.max(0,cfg.intervalMs()-duration);
+                    if(sleep>0)Thread.sleep(sleep);
+                }
+            }catch(Exception e){fault=kind(e);}
+            final int count=sent;final long avg=sent==0?0:total/sent,slowest=max;
+            final String failure=fault;
+            runOnUiThread(()->{
+                testInProgress=false;
+                msg("Rotation RGBIC : "+count+" commandes en 8 secondes, réponse moyenne "+avg+
+                    " ms, maximum "+slowest+" ms."+(failure.isEmpty()?"":"\nErreur : "+failure)+
+                    "\nCette cadence est réelle, non une promesse de 30 FPS. Relancer l'écoute UDP ensuite.");
+            });
+        });
     }
     private void demoUdp(){
         runAsync("Démonstration UDP",()->{

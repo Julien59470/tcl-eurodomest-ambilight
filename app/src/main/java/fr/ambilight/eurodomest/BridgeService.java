@@ -26,7 +26,7 @@ public final class BridgeService extends Service {
     private volatile int[] current=null;
     private volatile byte[] rawFrame=null;
     private volatile long lastPacketAt=0;
-    private volatile long valid=0, invalid=0, written=0;
+    private volatile long valid=0, invalid=0, written=0, failures=0, lastAckMs=0;
     private volatile String state="En préparation";
     private DatagramSocket sock;
     private Thread listener,writer;
@@ -45,7 +45,7 @@ public final class BridgeService extends Service {
         }
         showForeground();
         if(!alive) {
-            alive=true;valid=invalid=written=0;lastPacketAt=0;current=null;rawFrame=null;
+            alive=true;valid=invalid=written=failures=lastAckMs=0;lastPacketAt=0;current=null;rawFrame=null;
             listener=new Thread(this::listen,"EurodomestUdpListener");listener.start();
             writer=new Thread(this::writeColors,"EurodomestTuyaWriter");writer.start();
         }
@@ -94,13 +94,13 @@ public final class BridgeService extends Service {
                 int[] sample=current;byte[] frame=rawFrame;
                 if(sample==null||frame==null||SystemClock.elapsedRealtime()-lastPacketAt>2500)continue;
                 long now=SystemClock.elapsedRealtime();
-                if(now-lastSendAt<667||now<lastRetryAt)continue;
+                if(now-lastSendAt<settings.intervalMs()||now<lastRetryAt)continue;
                 boolean rgbic=settings.rgbic();
                 int[][] zones=null;
                 try{
                     if(rgbic){
                         zones=RgbicFourZone.orient(RawRgb.zones(frame,frame.length,4),settings.rotation(),settings.reverse());
-                        if(lastMode&&RgbicFourZone.difference(lastZones,zones)<32)continue;
+                        if(lastMode&&RgbicFourZone.difference(lastZones,zones)<18)continue;
                     }else if(!lastMode&&RawRgb.distance(lastSent,sample)<9)continue;
                     String id=settings.id()+"#"+settings.ip()+"#"+settings.version();
                     if(client==null||!id.equals(configId)){
@@ -108,15 +108,18 @@ public final class BridgeService extends Service {
                         client=new TuyaClient(settings.id(),settings.ip(),settings.secret(),settings.version());
                         configId=id;
                     }
-                    lastSendAt=SystemClock.elapsedRealtime();
+                    long writeStart=SystemClock.elapsedRealtime();
+                    lastSendAt=writeStart;
                     if(rgbic)client.setFourColors(zones,settings.uiSegments());
                     else client.setColor(sample);
+                    lastAckMs=SystemClock.elapsedRealtime()-writeStart;
                     written++;lastMode=rgbic;
                     lastZones=zones;lastSent=Arrays.copyOf(sample,3);
-                    state=rgbic?"UDP + Tuya RGBIC 4 zones (expérimental)":"UDP et Tuya couleur globale actifs";
+                    state=rgbic?"UDP + Tuya RGBIC 4 zones ("+settings.intervalMs()+" ms minimum)":"UDP et Tuya couleur globale actifs";
                 }catch(Exception failure){
-                    state="Tuya "+(rgbic?"RGBIC":"global")+" : "+failure.getClass().getSimpleName();
-                    lastRetryAt=SystemClock.elapsedRealtime()+4000;
+                    failures++;
+                    state="Tuya "+(rgbic?"RGBIC":"global")+" : "+failure.getClass().getSimpleName()+" (tentative "+failures+")";
+                    lastRetryAt=SystemClock.elapsedRealtime()+Math.min(4000,750*failures);
                     if(client!=null){client.close();client=null;}
                     lastSent=null;lastZones=null;
                 }
@@ -132,6 +135,7 @@ public final class BridgeService extends Service {
             }catch(Exception ignored){}
         }
         settings.stats(state,valid,invalid,written,color);
+        settings.telemetry(failures,lastAckMs,lastPacketAt==0?0:Math.max(0,SystemClock.elapsedRealtime()-lastPacketAt));
     }
     private void stopWork(){
         alive=false;if(sock!=null)sock.close();
