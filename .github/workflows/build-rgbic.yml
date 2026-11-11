@@ -1,0 +1,79 @@
+name: Build and publish RGBIC experimental APK
+
+on:
+  push:
+    paths:
+      - ".github/workflows/build-rgbic.yml"
+      - ".github/patches/v0.2.0.patch.zlib.b64"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-rgbic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Apply reviewed RGBIC source patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, zlib
+          from pathlib import Path
+          encoded = Path(".github/patches/v0.2.0.patch.zlib.b64").read_text().strip()
+          patch = zlib.decompress(base64.b64decode(encoded))
+          Path("/tmp/eurodomest-v02.patch").write_bytes(patch)
+          print("RGBIC patch length:", len(patch), "bytes")
+          PY
+          patch -p1 --batch < /tmp/eurodomest-v02.patch
+          test -f app/src/main/java/fr/ambilight/eurodomest/RgbicFourZone.java
+          grep -q "fr.ambilight.eurodomest.rgbic" app/build.gradle
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK platform
+        run: sdkmanager "platforms;android-35" "build-tools;34.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Run 30 Java protocol tests
+        run: |
+          mkdir -p tests/bin
+          javac -d tests/bin app/src/main/java/fr/ambilight/eurodomest/{RawRgb,RgbicFourZone,TuyaWire}.java tests/BridgePureTests.java
+          java -cp tests/bin BridgePureTests
+
+      - name: Compile experimental Android TV APK
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Prepare downloadable APK
+        shell: bash
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Eurodomest-Ambilight-TCL-RGBIC-v0.2.0.apk
+          test -s Eurodomest-Ambilight-TCL-RGBIC-v0.2.0.apk
+          sha256sum Eurodomest-Ambilight-TCL-RGBIC-v0.2.0.apk
+
+      - name: Publish source and direct APK in repository
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle app/src/main/java/fr/ambilight/eurodomest/BridgeService.java app/src/main/java/fr/ambilight/eurodomest/MainActivity.java app/src/main/java/fr/ambilight/eurodomest/RawRgb.java app/src/main/java/fr/ambilight/eurodomest/RgbicFourZone.java app/src/main/java/fr/ambilight/eurodomest/Settings.java app/src/main/java/fr/ambilight/eurodomest/TuyaClient.java app/src/main/res/values/strings.xml tests/BridgePureTests.java
+          git add -f Eurodomest-Ambilight-TCL-RGBIC-v0.2.0.apk
+          git commit -m "Publier prototype RGBIC v0.2.0 et APK experimental"
+          git push origin HEAD:main
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Eurodomest-Ambilight-TCL-RGBIC-v0.2.0
+          path: Eurodomest-Ambilight-TCL-RGBIC-v0.2.0.apk
+          if-no-files-found: error
