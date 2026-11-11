@@ -23,6 +23,15 @@ public final class Settings {
     public String ip(){return pref.getString("ip","");}
     public String version(){return pref.getString("version","3.3");}
     public boolean approved(){return pref.getBoolean("approved",false);}
+    public boolean rgbic(){return pref.getBoolean("rgbic",false);}
+    public int uiSegments(){return pref.getInt("uiSegments",20);}
+    public int rotation(){return pref.getInt("rotation",0);}
+    public boolean reverse(){return pref.getBoolean("reverse",false);}
+    public void setRgbic(boolean enabled){pref.edit().putBoolean("rgbic",enabled).apply();}
+    public void setRgbicOptions(int segments,int rot,boolean rev){
+        if(segments<4||segments>128||rot<0||rot>3)throw new IllegalArgumentException("Configuration RGBIC invalide");
+        pref.edit().putInt("uiSegments",segments).putInt("rotation",rot).putBoolean("reverse",rev).putBoolean("rgbic",false).apply();
+    }
     public boolean autoBoot(){return pref.getBoolean("boot",false);}
     public boolean hasSecret(){return pref.contains("key_cipher");}
     public void setApproved(boolean yes){pref.edit().putBoolean("approved",yes).apply();}
@@ -35,7 +44,7 @@ public final class Settings {
             ed.putString("key_cipher",encrypt(newKey));
             java.util.Arrays.fill(k,(byte)0);
         }
-        if(modified)ed.putBoolean("approved",false).putBoolean("boot",false);
+        if(modified)ed.putBoolean("approved",false).putBoolean("boot",false).putBoolean("rgbic",false);
         if(!ed.commit())throw new IllegalStateException("Écriture du stockage Android impossible");
     }
     public String secret() throws Exception {

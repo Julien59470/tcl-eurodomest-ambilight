@@ -40,7 +40,9 @@ public final class MainActivity extends Activity {
     private Spinner version;
     private CheckBox boot,force24;
     private TextView status,output,subtitle;
-    private Button confirm;
+    private Button confirm,confirmRgbic;
+    private Spinner segments,rotation;
+    private CheckBox reverse;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final ExecutorService tasks=Executors.newSingleThreadExecutor();
     private JSONObject lastProbe;
@@ -86,7 +88,7 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BG);
         LinearLayout root=vertical();root.setPadding(px(40),px(22),px(40),px(36));scroll.addView(root);
         TextView title=text("AMBILIGHT  |  TCL + EURODOMEST",27,true);title.setTextColor(ACCENT);add(root,title);
-        subtitle=text("Pont UDP Raw → Tuya local • Prototype 0.1 • Sans PC ni HDMI externe",17,false);add(root,subtitle);
+        subtitle=text("Pont UDP Raw → Tuya local • Prototype 0.2 • RGBIC expérimental",17,false);add(root,subtitle);
         LinearLayout feed=section(root,"1 • Réception des couleurs");
         status=text("Chargement…",17,false);add(feed,status);
         button("Démarrer l’écoute UDP (sans écrire tant que non validé)",feed,()->{try{BridgeService.start(this);msg("Récepteur activé");}catch(Exception e){error("Démarrage bloqué : "+kind(e));}});
@@ -117,13 +119,37 @@ public final class MainActivity extends Activity {
         button("Tester ROUGE puis BLEU pendant 2 secondes",testing,this::askPhysicalTest);
         confirm=button("J’ai VU rouge et bleu : autoriser la synchronisation",testing,this::confirmTest);
         confirm.setEnabled(false);
+        LinearLayout rgbicBlock=section(root,"4 • RGBIC multizone : test expérimental DP61");
+        add(rgbicBlock,text("Le matériel doit d'abord répondre au test 4 couleurs. Sinon garder le mode global. 20 = nombre de zones UI Tuya hypothétique, PAS le nombre de LED physiques.",16,false));
+        add(rgbicBlock,text("Nombre de segments UI dans le message Tuya",16,false));
+        segments=new Spinner(this);String[] opts={"12","16","20","24","32"};
+        ArrayAdapter<String> segAdapt=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,opts);
+        segAdapt.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);segments.setAdapter(segAdapt);
+        for(int i=0;i<opts.length;i++)if(Integer.toString(cfg.uiSegments()).equals(opts[i]))segments.setSelection(i);
+        add(rgbicBlock,segments);
+        add(rgbicBlock,text("Décalage du premier quart du ruban",16,false));
+        rotation=new Spinner(this);String[] rot={"0","1","2","3"};
+        ArrayAdapter<String> rotAdapt=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,rot);
+        rotAdapt.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);rotation.setAdapter(rotAdapt);
+        rotation.setSelection(cfg.rotation());add(rgbicBlock,rotation);
+        reverse=new CheckBox(this);reverse.setText("Inverser l'ordre des quatre zones");
+        reverse.setTextColor(WHITE);reverse.setChecked(cfg.reverse());add(rgbicBlock,reverse);
+        button("Enregistrer disposition RGBIC (désactive RGBIC pour sécurité)",rgbicBlock,()->{
+            cfg.setRgbicOptions(Integer.parseInt(segments.getSelectedItem().toString()),rotation.getSelectedItemPosition(),reverse.isChecked());
+            confirmRgbic.setEnabled(false);msg("Disposition enregistrée. Refaire le test RGBIC avant de l'activer.");
+        });
+        button("Tester 4 couleurs différentes via DP61",rgbicBlock,this::askRgbicTest);
+        confirmRgbic=button("J'ai VU 4 zones : autoriser le mode RGBIC",rgbicBlock,this::confirmRgbicTest);
+        confirmRgbic.setEnabled(false);
+        button("Revenir à la couleur globale",rgbicBlock,()->{cfg.setRgbic(false);BridgeService.stop(this);msg("RGBIC désactivé, revenir à UDP et Tuya global : redémarrer l'écoute.");});
+        add(rgbicBlock,text("État RGBIC : "+(cfg.rgbic()?"activé (à tester en mouvement)":"non activé"),16,false));
         boot=new CheckBox(this);boot.setText("Démarrer le pont après démarrage Android (uniquement après validation)");
         boot.setTextColor(WHITE);boot.setTextSize(17);boot.setChecked(cfg.autoBoot());add(testing,boot);
         button("Enregistrer le choix de démarrage automatique",testing,()->{
             if(boot.isChecked()&&!cfg.approved()){error("Confirmer le test physique avant d'activer le démarrage automatique.");boot.setChecked(false);return;}
             cfg.setBoot(boot.isChecked());msg("Préférence enregistrée. Redémarrage Android complet à tester.");
         });
-        LinearLayout logs=section(root,"4 • Diagnostic et protection");
+        LinearLayout logs=section(root,"5 • Diagnostic et protection");
         output=text("Aucun diagnostic encore exécuté.",16,false);output.setTextIsSelectable(true);add(logs,output);
         button("Effacer les identifiants et réinitialiser l’application",logs,()->new AlertDialog.Builder(this)
             .setTitle("Effacer la configuration ?")
@@ -225,6 +251,30 @@ public final class MainActivity extends Activity {
             .setMessage("Appuie sur OUI uniquement si les LED Eurodomest sont devenues rouges puis bleues. Ne confirme pas uniquement parce que l'application affiche 'envoyé'.")
             .setPositiveButton("OUI, VU",(dialog,which)->{cfg.setApproved(true);confirm.setEnabled(false);msg("Test physique confirmé. Synchronisation automatique autorisée. Démarrer l'écoute UDP.");})
             .setNegativeButton("Non",(dialog,which)->{cfg.setApproved(false);confirm.setEnabled(false);msg("Test non confirmé. Écritures automatiques interdites.");}).show();
+    }
+    private void askRgbicTest(){
+        if(!cfg.approved()){error("Valider d'abord les changements rouge/bleu de la couleur globale.");return;}
+        if(testInProgress){error("Un test est déjà en cours.");return;}
+        new AlertDialog.Builder(this).setTitle("Essai RGBIC sur le boîtier réel")
+            .setMessage("Une unique commande expérimentale DP61 place 4 couleurs (rouge, vert, bleu, jaune) sur le ruban. Peut modifier le mode d'éclairage. Si besoin revenir à Smart Life. Ne pas confirmer si tout le ruban reste uni.")
+            .setPositiveButton("Tester",(d,w)->rgbicTest())
+            .setNegativeButton("Annuler",null).show();
+    }
+    private void rgbicTest(){
+        testInProgress=true;confirmRgbic.setEnabled(false);BridgeService.stop(this);
+        runAsync("Test RGBIC (une commande DP61)",()->{
+            try(TuyaClient client=new TuyaClient(cfg.id(),cfg.ip(),cfg.secret(),cfg.version())){
+                client.setFourColors(new int[][]{{255,0,0},{0,255,0},{0,0,255},{255,255,0}},cfg.uiSegments());
+            }finally{runOnUiThread(()->{testInProgress=false;confirmRgbic.setEnabled(true);});}
+            return "DP61 envoyé. Regarder le ruban : 4 sections de couleurs distinctes ? Si oui confirmer. Sinon revenir au mode global. Aucun retour automatique à l'état précédent garanti.";
+        });
+    }
+    private void confirmRgbicTest(){
+        if(!confirmRgbic.isEnabled()){error("Faire d'abord l'essai DP61.");return;}
+        new AlertDialog.Builder(this).setTitle("Confirmation visuelle")
+            .setMessage("As-tu réellement VU quatre sections du ruban de couleurs différentes (rouge / vert / bleu / jaune) ? Ne pas confirmer si le ruban est uniforme.")
+            .setPositiveButton("Oui, 4 couleurs",(d,w)->{cfg.setRgbic(true);confirmRgbic.setEnabled(false);msg("RGBIC 4 zones activé. Démarrer l'écoute UDP puis Universal Ambient Light avec Send Average Color désactivé.");})
+            .setNegativeButton("Non",(d,w)->{cfg.setRgbic(false);confirmRgbic.setEnabled(false);msg("Test non confirmé, mode global conservé.");}).show();
     }
     private void demoUdp(){
         runAsync("Démonstration UDP",()->{

@@ -1,4 +1,5 @@
 import fr.ambilight.eurodomest.RawRgb;
+import fr.ambilight.eurodomest.RgbicFourZone;
 import fr.ambilight.eurodomest.TuyaWire;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -20,6 +21,18 @@ public class BridgePureTests {
         check("00f003e803e8".equals(RawRgb.hsv(new int[]{0,0,255})),"blue hsv");
         try{RawRgb.average(new byte[]{1,2},2);throw new AssertionError("invalid should fail");}
         catch(IllegalArgumentException expected){pass++;}
+        byte[] stripFrame={ (byte)255,0,0, (byte)255,0,0, 0,(byte)255,0, 0,(byte)255,0, 0,0,(byte)255, 0,0,(byte)255, (byte)255,(byte)255,0, (byte)255,(byte)255,0 };
+        int[][] zones=RawRgb.zones(stripFrame,stripFrame.length,4);
+        check(Arrays.equals(zones[0],new int[]{255,0,0}),"zone red");
+        check(Arrays.equals(zones[1],new int[]{0,255,0}),"zone green");
+        check(Arrays.equals(zones[2],new int[]{0,0,255}),"zone blue");
+        check(Arrays.equals(zones[3],new int[]{255,255,0}),"zone yellow");
+        byte[] dp=java.util.Base64.getDecoder().decode(RgbicFourZone.dp61(zones,20));
+        check(dp.length==29&&dp[0]==0&&dp[1]==3&&dp[3]==20,"DP61 length and header");
+        check(Arrays.equals(Arrays.copyOfRange(dp,5,11),new byte[]{0,0,3,(byte)232,3,(byte)232}),"DP61 first red HSV");
+        check(RgbicFourZone.difference(zones,RgbicFourZone.orient(zones,0,false))==0,"orient identity");
+        check(Arrays.equals(RgbicFourZone.orient(zones,1,false)[0],new int[]{0,255,0}),"orient rotate");
+        check(Arrays.equals(RgbicFourZone.orient(zones,0,true)[1],new int[]{255,255,0}),"orient reverse");
         byte[] key="0123456789abcdef".getBytes(StandardCharsets.US_ASCII);
         byte[] json="{\"dps\":{\"20\":true}}".getBytes(StandardCharsets.UTF_8);
         for(int version:new int[]{33,34,35}) {

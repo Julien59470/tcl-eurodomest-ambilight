@@ -109,6 +109,24 @@ public final class TuyaClient implements AutoCloseable {
         // Some devices only ACK with an empty payload. A valid authenticated ACK does not prove the LED changed.
         waitPacket(cmd,sessionKey);
     }
+    /** DP61 write: four-color COMBINATION, explicitly opt-in after visual test. */
+    public synchronized void setFourColors(int[][] colors,int uiSegments) throws Exception {
+        open();
+        JSONObject dps=new JSONObject().put("61",RgbicFourZone.dp61(colors,uiSegments));
+        JSONObject message;
+        int cmd;
+        if(version==33){
+            cmd=7;
+            message=new JSONObject().put("devId",id).put("uid",id)
+                .put("t",Long.toString(System.currentTimeMillis()/1000)).put("dps",dps);
+        }else{
+            cmd=13;
+            message=new JSONObject().put("protocol",5).put("t",System.currentTimeMillis()/1000)
+                .put("data",new JSONObject().put("dps",dps));
+        }
+        sendRaw(cmd,message.toString().getBytes(StandardCharsets.UTF_8));
+        waitPacket(cmd,sessionKey);
+    }
     public synchronized void restore(JSONObject before) throws Exception {
         if(before==null||!before.has("20"))throw new IOException("Ancien état non disponible");
         JSONObject dps=new JSONObject();

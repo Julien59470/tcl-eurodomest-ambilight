@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Eurodomest Ambilight TCL</string>
+    <string name="app_name">Eurodomest Ambilight RGBIC</string>
     <string name="service_channel">Synchronisation Eurodomest</string>
     <string name="service_running">Écoute des couleurs TV</string>
 </resources>

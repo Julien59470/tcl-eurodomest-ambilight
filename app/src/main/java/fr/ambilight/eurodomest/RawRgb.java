@@ -11,6 +11,26 @@ public final class RawRgb {
         for (int i=0; i<size; i+=3) { r += data[i]&255; g += data[i+1]&255; b += data[i+2]&255; }
         return new int[] { (r + count/2) / count, (g + count/2) / count, (b + count/2) / count };
     }
+    /** Ordered contiguous zones. Their order follows Universal Ambient Light's LED layout. */
+    public static int[][] zones(byte[] data, int size, int zoneCount) {
+        if (zoneCount < 1 || zoneCount > 16 || data == null || size < 3 ||
+            size > 490*3 || size % 3 != 0 || size > data.length) {
+            throw new IllegalArgumentException("Trame RGB invalide");
+        }
+        int pixels=size/3;
+        int[][] out=new int[zoneCount][3];
+        for(int zone=0;zone<zoneCount;zone++) {
+            int start=zone*pixels/zoneCount;
+            int end=(zone+1)*pixels/zoneCount;
+            if(end<=start)end=Math.min(pixels,start+1);
+            int count=Math.max(1,end-start),r=0,g=0,b=0;
+            for(int x=start;x<end;x++){
+                r+=data[x*3]&255;g+=data[x*3+1]&255;b+=data[x*3+2]&255;
+            }
+            out[zone]=new int[]{(r+count/2)/count,(g+count/2)/count,(b+count/2)/count};
+        }
+        return out;
+    }
     public static String hsv(int[] rgb) {
         float r=rgb[0]/255f, g=rgb[1]/255f, b=rgb[2]/255f;
         float max=Math.max(r,Math.max(g,b)), min=Math.min(r,Math.min(g,b)), d=max-min;
