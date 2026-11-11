@@ -43,7 +43,7 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk Eurodomest-Ambilight-TCL-RGBIC-v0.3.0.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Eurodomest-Ambilight-TCL-RGBIC-v0.3.0.apk
+          git add -f Eurodomest-Ambilight-TCL-RGBIC-v0.3.0.apk
           if ! git diff --cached --quiet; then
             git commit -m "Publier APK Android TV v0.3.0 [skip ci]"
             git push origin HEAD:main
