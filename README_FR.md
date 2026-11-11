@@ -1,6 +1,6 @@
 # Eurodomest Ambilight TCL — application Android TV (prototype v0.1.0)
 
-**État : code source natif Java fourni, tests de protocole Java exécutés, APK non compilée dans cet environnement.** Ce n'est pas encore une application validée sur ta TCL 55Q6C ou ton Eurodomest 6208000100. Ne pas confondre le ZIP source avec une APK installable.
+**État au 11 novembre 2026 : APK debug effectivement compilée par GitHub Actions, tests pure-Java (21) réussis.** Il s'agit d'une application expérimentale : ni la TCL 55Q6C ni l'Eurodomest 6208000100 n'ont encore été testés physiquement avec cette APK. L'APK est disponible dans l'artefact GitHub Actions du run de compilation.
 
 ## 1. Architecture
 
@@ -47,13 +47,13 @@ Le projet est prêt pour **Android Studio** (JDK 17, Gradle 8.9, Android SDK 35,
 
 ### Méthode GitHub Actions (sans PC local)
 
-1. Créer un nouveau dépôt GitHub privé, vide, avec branche `main`.
-2. Y envoyer le contenu de cette archive **à la racine** du dépôt, y compris le répertoire caché `.github/workflows` (par interface GitHub, Codespaces, ou l'app GitHub connectée).
+1. Le dépôt privé est déjà créé et les 19 fichiers sont publiés : `Julien59470/tcl-eurodomest-ambilight`.
+2. La compilation initiale a réussi : https://github.com/Julien59470/tcl-eurodomest-ambilight/actions/runs/43094115686 .
 3. Ouvrir GitHub > dépôt > Actions > **Build Android TV debug APK**. Si nécessaire, choisir **Run workflow**.
 4. Lorsque le job devient vert, télécharger l'artefact `Eurodomest-Ambilight-TCL-debug` depuis la page du run. À l'intérieur du ZIP d'artefact se trouve **`app-debug.apk`**.
 5. Transférer cette APK sur ta TCL (par exemple via LocalSend) puis l'installer avec le gestionnaire de fichiers, après avoir autorisé l'installation depuis cette source.
 
-L'APK debug est signée automatiquement avec une clé de développement. Elle convient à un test privé. Pour une distribution publique, prévoir une signature de production pérenne et un audit complémentaire.
+L'APK debug est signée automatiquement avec une clé de développement temporaire propre au runner GitHub. Elle convient à un **test privé uniquement**. **Attention aux mises à jour :** les prochaines compilations n'utiliseront pas forcément le même certificat. Pour installer une nouvelle APK sans désinstaller l'ancienne, mettre en place une signature pérenne privée ; sans cela Android peut refuser l'installation par-dessus et un effacement des données peut être nécessaire. Ne jamais déposer une clé de signature privée ou la Local Key Tuya dans le dépôt.
 
 ### Méthode Android Studio
 
@@ -116,7 +116,7 @@ javac -d tests/bin app/src/main/java/fr/ambilight/eurodomest/{RawRgb,TuyaWire}.j
 java -cp tests/bin BridgePureTests
 ```
 
-Résultat local actuel : **21 assertions réussies** (RGB, HSV, AES ECB, HMAC SHA-256, GCM, signatures invalides, clés de session). Ne remplace pas les essais physiques. L'environnement utilisé pour créer le projet n'a ni SDK Android installé ni accès aux téléchargements nécessaires : **aucune APK n'a été compilée ni installée sur une télévision**.
+Résultat validé : **21 assertions réussies** (RGB, HSV, AES ECB, HMAC SHA-256, GCM, signatures invalides, clés de session). GitHub Actions a également compilé **`app-debug.apk`** avec succès et téléversé l'artefact `Eurodomest-Ambilight-TCL-debug`. Ces tests ne remplacent pas l'installation sur la TCL ni la validation physique des commandes couleur sur l'Eurodomest.
 
 Les codes de référence des protocoles proviennent de :
 - https://github.com/jasonacox/tinytuya/blob/master/PROTOCOL.md
