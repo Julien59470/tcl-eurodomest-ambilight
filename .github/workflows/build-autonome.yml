@@ -1,0 +1,50 @@
+name: Build and publish Ambilight autonome v0.4
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'tests/**'
+      - '.github/workflows/build-autonome.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Verify letterbox and RGB zones
+        run: |
+          mkdir -p tests/check
+          javac -d tests/check app/src/main/java/fr/ambilight/eurodomest/FrameAnalyzer.java tests/FrameAnalyzerTests.java
+          java -cp tests/check FrameAnalyzerTests
+          mkdir -p tests/old_check
+          javac -d tests/old_check app/src/main/java/fr/ambilight/eurodomest/{RawRgb,TuyaWire,RgbicFourZone}.java tests/BridgePureTests.java
+          java -cp tests/old_check BridgePureTests
+      - name: Build Android APK
+        run: gradle --no-daemon :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TCL-Eurodomest-Autonomous-v0.4.0
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - name: Publish direct APK for Downloader
+        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Eurodomest-Ambilight-TCL-AUTONOME-v0.4.0.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Eurodomest-Ambilight-TCL-AUTONOME-v0.4.0.apk
+          git commit -m "Publication APK autonome expérimentale v0.4.0 [skip ci]" || exit 0
+          git push
