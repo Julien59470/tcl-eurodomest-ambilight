@@ -45,6 +45,6 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk Eurodomest-Ambilight-TCL-AUTONOME-v0.4.0.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Eurodomest-Ambilight-TCL-AUTONOME-v0.4.0.apk
+          git add -f Eurodomest-Ambilight-TCL-AUTONOME-v0.4.0.apk
           git commit -m "Publication APK autonome expérimentale v0.4.0 [skip ci]" || exit 0
-          git push
+          git push origin HEAD:main
