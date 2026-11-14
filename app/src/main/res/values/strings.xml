@@ -2,4 +2,5 @@
     <string name="app_name">Eurodomest Ambilight RGBIC</string>
     <string name="service_channel">Synchronisation Eurodomest</string>
     <string name="service_running">Écoute des couleurs TV</string>
+    <string name="accessibility_capture_description">Analyse locale des couleurs visibles à l’écran pour les LED Eurodomest. Aucune image enregistrée ou envoyée sur Internet. Désactivable à tout moment.</string>
 </resources>

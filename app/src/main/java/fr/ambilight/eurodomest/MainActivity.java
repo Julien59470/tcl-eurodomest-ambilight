@@ -10,6 +10,7 @@ import android.media.projection.MediaProjectionConfig;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
@@ -39,7 +40,7 @@ public final class MainActivity extends Activity {
     private Button confirm;
     private boolean tested=false;
     private final Runnable refresh=new Runnable(){@Override public void run(){
-        if(status!=null){String s=getSharedPreferences("ambilight_v04_runtime",MODE_PRIVATE).getString("status","Prêt à démarrer");
+        if(status!=null){String s=getSharedPreferences("ambilight_v06_runtime",MODE_PRIVATE).getString("status","Mode Accessibilité prêt");
             status.setText(s);}
         handler.postDelayed(this,1200);
     }};
@@ -63,12 +64,13 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BG);
         LinearLayout root=col();root.setPadding(dp(34),dp(14),dp(34),dp(24));scroll.addView(root);
         TextView heading=label("AMBILIGHT TCL",30);heading.setTextColor(ACCENT);add(root,heading);
-        add(root,label("Autonome · Eurodomest RGBIC · 3 côtés · v0.5 expérimentale",16));
+        add(root,label("Autonome · Eurodomest RGBIC · 3 côtés · v0.6 sans pictogramme",16));
         LinearLayout main=col();main.setPadding(dp(18),dp(10),dp(18),dp(15));main.setBackgroundColor(PANEL);add(root,main);
         status=label("Prêt à démarrer",17);add(main,status);
-        button(main,"DÉMARRER AMBILIGHT",this::requestCapture);
-        button(main,"Arrêter",()->{CaptureService.stop(this);notice("Arrêt demandé.");});
-        add(main,label("Une autorisation Android est nécessaire à chaque nouvelle session de capture. La 4K/HDR reste à tester sur cette TCL.",15));
+        button(main,"DÉMARRER SANS PICTOGRAMME",this::requestAccessibility);
+        button(main,"Capture de secours (MediaProjection)",this::requestCapture);
+        button(main,"Arrêter",()->{AccessibilityCaptureService.enable(this,false);CaptureService.stop(this);notice("Synchronisation arrêtée.");});
+        add(main,label("Mode sans pictogramme : activer une fois le service Accessibilité dans Google TV. Pas de commande ADB. La fluidité 4K/HDR reste expérimentale.",15));
         button(root,"Corriger la répartition gauche / droite",()->{
             boolean original=getSharedPreferences("ambilight_v05_options",MODE_PRIVATE).getBoolean("reverse",true);
             getSharedPreferences("ambilight_v05_options",MODE_PRIVATE).edit().putBoolean("reverse",!original).apply();
@@ -96,8 +98,8 @@ public final class MainActivity extends Activity {
         setup.setVisibility(settings.approved()&&settings.hasSecret()?View.GONE:View.VISIBLE);add(root,setup);
         message=label("",16);add(root,message);
         button(root,"Diagnostic et limites",()->new AlertDialog.Builder(this).setTitle("Diagnostic")
-            .setMessage("Capture : MediaProjection Android 14 à 160×90, ~12 images analysées/s (maximum).\n"+
-                "LED : quatre couleurs DP61, cadence adaptive 200 à 160 ms. Ordre gauche/droite corrigé, ajustable.\n"+
+            .setMessage("Capture standard : MediaProjection. Nouveau mode : AccessibilityService.takeScreenshot, sans session MediaProjection.\n"+
+                "LED : 4 couleurs DP61, cadence 200 à 160 ms selon les réponses Tuya. Mode Accessibility expérimental ; ses captures peuvent être plus lentes.\n"+
                 "Recadrage automatique des bandes noires stabilisé sur plusieurs images.\n"+
                 "Un effet sur la lecture 4K/HDR reste possible ; la compatibilité ne peut être confirmée que sur la télévision.")
             .setPositiveButton("OK",null).show());
@@ -135,6 +137,26 @@ public final class MainActivity extends Activity {
                 notice("Eurodomest validé. Appuyer sur DÉMARRER AMBILIGHT puis autoriser l'écran entier.");
             }).setNegativeButton("Non",(d,w)->{settings.setApproved(false);notice("Mode automatique désactivé.");}).show();
     }
+    private void requestAccessibility(){
+        if(!settings.approved()||!settings.rgbic()||!settings.hasSecret()){
+            setup.setVisibility(View.VISIBLE);
+            error("Configurer et confirmer le test RGBIC avant le démarrage.");return;
+        }
+        // Stop the old mode first; both must never send Tuya commands at once.
+        CaptureService.stop(this);
+        AccessibilityCaptureService.enable(this,true);
+        if(!AccessibilityCaptureService.connected()){
+            new AlertDialog.Builder(this)
+                .setTitle("Autoriser la capture sans pictogramme")
+                .setMessage("Dans les paramètres Android, activez le service 'Ambilight TCL - capture locale' sous Accessibilité. Il analyse seulement les couleurs et ne conserve aucune image. Revenez ensuite à la vidéo : le service démarrera automatiquement.")
+                .setPositiveButton("Ouvrir Accessibilité",(d,w)->{
+                    try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}
+                    catch(Exception e){error("Impossible d'ouvrir les paramètres : "+e.getMessage());}
+                }).setNegativeButton("Annuler",(d,w)->AccessibilityCaptureService.enable(this,false)).show();
+            return;
+        }
+        notice("Capture Accessibility démarrée. Ouvrez SmartTube. Si l'icône système persiste, elle est imposée par votre firmware.");
+    }
     private void requestCapture(){
         if(!settings.approved()||!settings.rgbic()||!settings.hasSecret()){
             setup.setVisibility(View.VISIBLE);error("Configurer puis confirmer le test quatre couleurs avant la capture.");return;
@@ -143,6 +165,7 @@ public final class MainActivity extends Activity {
             MediaProjectionManager manager=(MediaProjectionManager)getSystemService(Context.MEDIA_PROJECTION_SERVICE);
             Intent request=Build.VERSION.SDK_INT>=34?
                 manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay()):manager.createScreenCaptureIntent();
+            AccessibilityCaptureService.enable(this,false);
             startActivityForResult(request,REQUEST_CAPTURE);
         }catch(Exception e){error("Autorisation capture impossible : "+e.getMessage());}
     }
