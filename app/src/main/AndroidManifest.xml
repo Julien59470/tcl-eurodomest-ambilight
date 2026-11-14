@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <application android:allowBackup="false" android:fullBackupContent="false"
+    <application android:name=".AmbilightApp" android:allowBackup="false" android:fullBackupContent="false"
         android:usesCleartextTraffic="false" android:label="Ambilight TCL Autonome"
         android:banner="@drawable/tv_banner" android:icon="@drawable/app_icon"
         android:theme="@android:style/Theme.Material.NoActionBar" android:supportsRtl="true">

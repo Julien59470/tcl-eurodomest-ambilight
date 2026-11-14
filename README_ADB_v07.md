@@ -20,7 +20,7 @@ https://raw.githubusercontent.com/Julien59470/tcl-eurodomest-ambilight/main/Euro
 ## Architecture / sécurité
 
 - LibADB Android (Apache 2.0) : association TLS et shell local uniquement, **sans ouverture du port ADB non chiffré 5555**.
-- Clé RSA d'association générée et maintenue dans AndroidKeyStore (non exportée).
+- Clé RSA d'association conservée en espace privé après chiffrement AES-GCM avec une clé AndroidKeyStore non exportable. Ce format reste compatible avec le fournisseur TLS Conscrypt de l'application.
 - Serveur de configuration HTTP temporaire sur le port local 28914 : PIN à huit chiffres, cinq essais max, aucun stockage des codes, aucune collecte de Local Key. Il doit rester inaccessible depuis Internet : Wi-Fi domestique seulement. Le code d'association ADB transite en clair dans le réseau local ; ne pas utiliser un réseau public.
 - Le serveur s'arrête après 10 min ou en quittant explicitement, mais l'ADB sans fil lui-même reste contrôlé par Android.
 - Les images de l'écran ne sont ni stockées ni envoyées sur Internet. Seules les couleurs de quatre zones sont transmises directement à Eurodomest via Tuya Local.
