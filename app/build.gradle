@@ -3,15 +3,20 @@ android {
     namespace 'fr.ambilight.eurodomest'
     compileSdk 35
     defaultConfig {
-        applicationId 'fr.ambilight.eurodomest.autonome.v06'
+        applicationId 'fr.ambilight.eurodomest.autonome.v07'
         minSdk 26
         targetSdk 35
-        versionCode 6
-        versionName '0.6.0-experimental'
+        versionCode 7
+        versionName '0.7.0-experimental'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
     buildTypes { release { minifyEnabled false } }
+}
+
+dependencies {
+    implementation 'com.github.MuntashirAkon:libadb-android:3.1.1'
+    implementation 'org.conscrypt:conscrypt-android:2.5.3'
 }

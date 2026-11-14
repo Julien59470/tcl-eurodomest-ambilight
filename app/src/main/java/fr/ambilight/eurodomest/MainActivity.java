@@ -12,6 +12,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.net.Uri;
+import java.util.Locale;
 import android.text.InputType;
 import android.view.View;
 import android.widget.ArrayAdapter;
@@ -39,7 +41,7 @@ public final class MainActivity extends Activity {
     private Button confirm;
     private boolean tested=false;
     private final Runnable refresh=new Runnable(){@Override public void run(){
-        if(status!=null){String s=getSharedPreferences("ambilight_v06_runtime",MODE_PRIVATE).getString("status","Mode Accessibilité prêt");
+        if(status!=null){String s=getSharedPreferences("ambilight_v07_runtime",MODE_PRIVATE).getString("status","Mode ADB prêt : association nécessaire");
             status.setText(s);}
         handler.postDelayed(this,1200);
     }};
@@ -63,13 +65,14 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BG);
         LinearLayout root=col();root.setPadding(dp(34),dp(14),dp(34),dp(24));scroll.addView(root);
         TextView heading=label("AMBILIGHT TCL",30);heading.setTextColor(ACCENT);add(root,heading);
-        add(root,label("Autonome · Eurodomest RGBIC · 3 côtés · v0.6 sans pictogramme",16));
+        add(root,label("Autonome · Eurodomest RGBIC · 3 côtés · v0.7 ADB expérimental",16));
         LinearLayout main=col();main.setPadding(dp(18),dp(10),dp(18),dp(15));main.setBackgroundColor(PANEL);add(root,main);
         status=label("Prêt à démarrer",17);add(main,status);
-        button(main,"DÉMARRER SANS PICTOGRAMME",this::requestAccessibility);
+        button(main,"DÉMARRER SANS PICTOGRAMME (ADB)",this::startAdbCapture);
+        button(main,"Associer ADB sans PC (Safari sur iPhone)",this::openAdbPairing);
         button(main,"Capture de secours (MediaProjection)",this::requestCapture);
-        button(main,"Arrêter",()->{AccessibilityCaptureService.enable(this,false);CaptureService.stop(this);notice("Synchronisation arrêtée.");});
-        add(main,label("Mode sans pictogramme : activer une fois le service Accessibilité dans Google TV. Pas de commande ADB. La fluidité 4K/HDR reste expérimentale.",15));
+        button(main,"Arrêter",()->{AdbCaptureService.stop(this);CaptureService.stop(this);notice("Synchronisation arrêtée.");});
+        add(main,label("Capture globale des menus et applications compatibles. Première association via code ADB depuis Safari sur ton iPhone, puis aucune commande à taper. 4K/HDR reste expérimentale.",15));
         button(root,"Corriger la répartition gauche / droite",()->{
             boolean original=getSharedPreferences("ambilight_v05_options",MODE_PRIVATE).getBoolean("reverse",true);
             getSharedPreferences("ambilight_v05_options",MODE_PRIVATE).edit().putBoolean("reverse",!original).apply();
@@ -97,8 +100,9 @@ public final class MainActivity extends Activity {
         setup.setVisibility(settings.approved()&&settings.hasSecret()?View.GONE:View.VISIBLE);add(root,setup);
         message=label("",16);add(root,message);
         button(root,"Diagnostic et limites",()->new AlertDialog.Builder(this).setTitle("Diagnostic")
-            .setMessage("Capture standard : MediaProjection. Nouveau mode : AccessibilityService.takeScreenshot, sans session MediaProjection.\n"+
-                "LED : 4 couleurs DP61, cadence 200 à 160 ms selon les réponses Tuya. Mode Accessibility expérimental ; ses captures peuvent être plus lentes.\n"+
+            .setMessage("Capture ADB sans indicateur MediaProjection : screencap via shell ADB TLS après association.\n"+
+                "Il s'agit de captures PNG complètes, susceptibles de ralentir la TV ; aucune garantie 4K HDR.\n"+
+                "LED : quatre couleurs DP61, cadence 200 à 160 ms selon réponses Tuya.\n"+
                 "Recadrage automatique des bandes noires stabilisé sur plusieurs images.\n"+
                 "Un effet sur la lecture 4K/HDR reste possible ; la compatibilité ne peut être confirmée que sur la télévision.")
             .setPositiveButton("OK",null).show());
@@ -136,25 +140,39 @@ public final class MainActivity extends Activity {
                 notice("Eurodomest validé. Appuyer sur DÉMARRER AMBILIGHT puis autoriser l'écran entier.");
             }).setNegativeButton("Non",(d,w)->{settings.setApproved(false);notice("Mode automatique désactivé.");}).show();
     }
-    private void requestAccessibility(){
+    private void startAdbCapture(){
         if(!settings.approved()||!settings.rgbic()||!settings.hasSecret()){
             setup.setVisibility(View.VISIBLE);
-            error("Configurer et confirmer le test RGBIC avant le démarrage.");return;
-        }
-        // Stop the old mode first; both must never send Tuya commands at once.
-        CaptureService.stop(this);
-        AccessibilityCaptureService.enable(this,true);
-        if(!AccessibilityCaptureService.connected()){
-            new AlertDialog.Builder(this)
-                .setTitle("Autoriser la capture sans pictogramme")
-                .setMessage("Dans les paramètres Android, activez le service 'Ambilight TCL - capture locale' sous Accessibilité. Il analyse seulement les couleurs et ne conserve aucune image. Revenez ensuite à la vidéo : le service démarrera automatiquement.")
-                .setPositiveButton("Ouvrir Accessibilité",(d,w)->{
-                    try{startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));}
-                    catch(Exception e){error("Impossible d'ouvrir les paramètres : "+e.getMessage());}
-                }).setNegativeButton("Annuler",(d,w)->AccessibilityCaptureService.enable(this,false)).show();
+            error("Configurer et confirmer les quatre couleurs Eurodomest avant le démarrage.");
             return;
         }
-        notice("Capture Accessibility démarrée. Ouvrez SmartTube. Si l'icône système persiste, elle est imposée par votre firmware.");
+        CaptureService.stop(this);
+        try{
+            AdbCaptureService.start(this);
+            notice("Démarrage ADB demandé. Si l'association manque, utilise le bouton Associer ADB.");
+        }catch(Exception e){error("Capture ADB : "+e.getMessage());}
+    }
+    private void openAdbPairing(){
+        String tv=AdbPairServerService.tvIp();
+        if(tv.equals("IP_TV")){error("Adresse IP de la TV non détectée : vérifier le Wi-Fi.");return;}
+        String pin=AdbPairServerService.newPin();
+        try{AdbPairServerService.start(this,pin);}
+        catch(Exception e){error("Serveur d'association : "+e.getMessage());return;}
+        String url="http://"+tv+":"+AdbPairServerService.PORT;
+        new AlertDialog.Builder(this)
+            .setTitle("Association ADB sans ordinateur")
+            .setMessage("1. Note cette adresse Safari : "+url+
+                "\n2. Note le PIN temporaire : "+pin+
+                "\n3. Sur la TCL, ouvre Options pour développeurs > Débogage sans fil > Associer avec un code. Garde le code affiché."+
+                "\n4. Sur l'iPhone (même Wi-Fi), ouvre Safari à l'adresse ci-dessus et saisis PIN, port et code affichés sur la TCL."+
+                "\n5. Reviens dans Ambilight et lance le mode ADB."+
+                "\n\nLe serveur local s'arrête automatiquement après 10 minutes. Aucun identifiant Tuya n'est envoyé.")
+            .setPositiveButton("Ouvrir options développeur",(d,w)->{
+                try{startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));}
+                catch(Exception e){error("Ouvre manuellement Paramètres > Options pour les développeurs.");}
+            })
+            .setNeutralButton("Fermer",null)
+            .setNegativeButton("Annuler le serveur",(d,w)->AdbPairServerService.stop(this)).show();
     }
     private void requestCapture(){
         if(!settings.approved()||!settings.rgbic()||!settings.hasSecret()){
@@ -164,7 +182,7 @@ public final class MainActivity extends Activity {
             MediaProjectionManager manager=(MediaProjectionManager)getSystemService(Context.MEDIA_PROJECTION_SERVICE);
             Intent request=Build.VERSION.SDK_INT>=34?
                 manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay()):manager.createScreenCaptureIntent();
-            AccessibilityCaptureService.enable(this,false);
+            AdbCaptureService.stop(this);
             startActivityForResult(request,REQUEST_CAPTURE);
         }catch(Exception e){error("Autorisation capture impossible : "+e.getMessage());}
     }

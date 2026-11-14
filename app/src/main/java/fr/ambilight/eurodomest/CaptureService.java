@@ -167,7 +167,7 @@ public final class CaptureService extends Service {
         String status=state+"\nImages analysées : "+sampled+" | commandes RGBIC : "+sent+
             "\nCapture : "+latestFps+" images/s | Tuya : "+adaptiveInterval+" ms | réponse : "+ackMs+" ms (max "+responseMax+" ms) | erreurs : "+failures+
             "\nBandes noires détectées : haut "+(c==null?0:c.upper)+" px / bas "+(c==null?0:c.lower)+" px (image réduite)";
-        getSharedPreferences("ambilight_v04_runtime",MODE_PRIVATE).edit().putString("status",status).apply();
+        getSharedPreferences("ambilight_v07_media_runtime",MODE_PRIVATE).edit().putString("status",status).apply();
     }
     @Override public void onDestroy(){
         running=false;

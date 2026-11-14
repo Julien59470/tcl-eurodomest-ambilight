@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <application android:allowBackup="false" android:fullBackupContent="false"
         android:usesCleartextTraffic="false" android:label="Ambilight TCL Autonome"
         android:banner="@drawable/tv_banner" android:icon="@drawable/app_icon"
@@ -16,15 +19,8 @@
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
         <service android:name=".CaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />
-        <service android:name=".AccessibilityCaptureService"
-            android:label="Ambilight TCL - capture locale"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_ambilight" />
-        </service>
+        <service android:name=".AdbCaptureService" android:exported="false" android:foregroundServiceType="connectedDevice" />
+        <service android:name=".AdbPairServerService" android:exported="false" android:foregroundServiceType="connectedDevice" />
+
     </application>
 </manifest>
