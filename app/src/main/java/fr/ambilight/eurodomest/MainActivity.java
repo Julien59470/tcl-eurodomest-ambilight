@@ -65,7 +65,7 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BG);
         LinearLayout root=col();root.setPadding(dp(34),dp(14),dp(34),dp(24));scroll.addView(root);
         TextView heading=label("AMBILIGHT TCL",30);heading.setTextColor(ACCENT);add(root,heading);
-        add(root,label("Autonome · Eurodomest RGBIC · 3 côtés · v0.8 diagnostic ADB",16));
+        add(root,label("Autonome · Eurodomest RGBIC · 3 côtés · v0.9 correctif flux ADB",16));
         LinearLayout main=col();main.setPadding(dp(18),dp(10),dp(18),dp(15));main.setBackgroundColor(PANEL);add(root,main);
         status=label("Prêt à démarrer",17);add(main,status);
         button(main,"DÉMARRER SANS PICTOGRAMME (ADB)",this::startAdbCapture);

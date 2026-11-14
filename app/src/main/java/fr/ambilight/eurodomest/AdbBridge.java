@@ -8,6 +8,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.math.BigInteger;
 import java.nio.file.Files;
 import java.security.KeyFactory;
@@ -45,6 +48,11 @@ public final class AdbBridge extends AbsAdbConnectionManager {
     private final PrivateKey privateKey;
     private final Certificate certificate;
     private volatile AdbStream activeCapture;
+    private static final ScheduledExecutorService TIMEOUTS=Executors.newSingleThreadScheduledExecutor(task->{
+        Thread worker=new Thread(task,"Ambilight-ADB-Timeout");
+        worker.setDaemon(true);
+        return worker;
+    });
 
     private AdbBridge() throws Exception {
         setApi(Build.VERSION.SDK_INT);
@@ -160,6 +168,12 @@ public final class AdbBridge extends AbsAdbConnectionManager {
         if(message==null||message.trim().isEmpty())message=e.getClass().getSimpleName();
         return message.replaceAll("[\\r\\n\\t]"," ").substring(0,Math.min(160,message.length()));
     }
+    /**
+     * Receive an exact PNG, stopping at the IEND chunk rather than relying on
+     * EOF from libadb 3.1.1. Its peer-close handling is known to be racy.
+     * See https://github.com/MuntashirAkon/libadb-android/issues/34
+     * and https://github.com/MuntashirAkon/libadb-android/pull/35
+     */
     public byte[] screenshotPng()throws Exception{
         AdbStream stream;
         synchronized(this){
@@ -167,23 +181,19 @@ public final class AdbBridge extends AbsAdbConnectionManager {
             stream=openStream("exec:screencap -p");
             activeCapture=stream;
         }
-        try(AdbStream work=stream;InputStream in=stream.openInputStream();
-            ByteArrayOutputStream bytes=new ByteArrayOutputStream(262144)){
-            byte[] buf=new byte[16384];int count;
-            while((count=in.read(buf))!=-1){
-                if(Thread.currentThread().isInterrupted())throw new InterruptedException("Capture interrompue");
-                if(bytes.size()+count>24*1024*1024)throw new IllegalStateException("PNG trop volumineux");
-                bytes.write(buf,0,count);
+        final AdbStream capture=stream;
+        // Watchdog closes a stuck ADB stream, including the pending-CLSE bug.
+        ScheduledFuture<?> timeout=TIMEOUTS.schedule(()->{
+            if(activeCapture==capture){
+                try{capture.close();}catch(Exception ignored){}
             }
-            byte[] out=bytes.toByteArray();
-            if(out.length<16||out[0]!=(byte)0x89||out[1]!='P'||out[2]!='N'||out[3]!='G'){
-                String prefix=new String(out,0,Math.min(out.length,100),java.nio.charset.StandardCharsets.UTF_8)
-                    .replaceAll("[^\\x20-\\x7E]"," ");
-                throw new IllegalStateException("ADB connecté mais screencap ne retourne pas de PNG ("+
-                    out.length+" octets) : "+prefix);
-            }
-            return out;
-        }finally{activeCapture=null;}
+        },8000,java.util.concurrent.TimeUnit.MILLISECONDS);
+        try(AdbStream work=stream;InputStream in=stream.openInputStream()){
+            return PngStreamReader.read(in);
+        }finally{
+            timeout.cancel(false);
+            if(activeCapture==capture)activeCapture=null;
+        }
     }
     public void cancelCapture(){
         AdbStream s=activeCapture;
