@@ -5,6 +5,8 @@ on:
     paths:
       - 'app/**'
       - 'tests/**'
+      - 'gradle.properties'
+      - 'settings.gradle'
       - '.github/workflows/build-autonome.yml'
   workflow_dispatch:
 permissions:
