@@ -151,7 +151,7 @@ public final class AdbPairServerService extends Service {
         if(!"GET".equals(parts[0]))return;
         String disabled=pairing||attempts>=5?"disabled":"";
         String page="<!doctype html><html lang='fr'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-          +"<meta http-equiv='refresh' content='8'><title>Association Ambilight</title>"
+          +"<title>Association Ambilight</title>"
           +"<style>body{font:18px system-ui;background:#102234;color:white;max-width:480px;margin:auto;padding:24px}input,button{display:block;width:100%;padding:13px;margin:10px 0;font:20px system-ui;box-sizing:border-box}button{background:#ffce35;border:0;border-radius:6px}p{line-height:1.4}</style></head><body>"
           +"<h2>Associer Ambilight TCL</h2><p>Gardez sur la télé la fenêtre « Associer avec un code » ouverte.</p>"
           +"<p><b>État :</b> "+escape(status)+"</p>"
