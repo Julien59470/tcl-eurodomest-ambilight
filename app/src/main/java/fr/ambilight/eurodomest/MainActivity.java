@@ -63,12 +63,18 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BG);
         LinearLayout root=col();root.setPadding(dp(34),dp(14),dp(34),dp(24));scroll.addView(root);
         TextView heading=label("AMBILIGHT TCL",30);heading.setTextColor(ACCENT);add(root,heading);
-        add(root,label("Autonome · Eurodomest RGBIC · 3 côtés · v0.4 expérimentale",16));
+        add(root,label("Autonome · Eurodomest RGBIC · 3 côtés · v0.5 expérimentale",16));
         LinearLayout main=col();main.setPadding(dp(18),dp(10),dp(18),dp(15));main.setBackgroundColor(PANEL);add(root,main);
         status=label("Prêt à démarrer",17);add(main,status);
         button(main,"DÉMARRER AMBILIGHT",this::requestCapture);
         button(main,"Arrêter",()->{CaptureService.stop(this);notice("Arrêt demandé.");});
         add(main,label("Une autorisation Android est nécessaire à chaque nouvelle session de capture. La 4K/HDR reste à tester sur cette TCL.",15));
+        button(root,"Corriger la répartition gauche / droite",()->{
+            boolean original=getSharedPreferences("ambilight_v05_options",MODE_PRIVATE).getBoolean("reverse",true);
+            getSharedPreferences("ambilight_v05_options",MODE_PRIVATE).edit().putBoolean("reverse",!original).apply();
+            notice("Sens des zones inversé. Relance une vidéo gauche/ droite : l'ajustement est immédiat si l'Ambilight tourne. " +
+                (original?"Mode direct activé.":"Mode inversé activé."));
+        });
         button(root,"Configurer le boîtier / premiers tests  ▾",()->{
             setup.setVisibility(setup.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE);
         });
@@ -90,8 +96,8 @@ public final class MainActivity extends Activity {
         setup.setVisibility(settings.approved()&&settings.hasSecret()?View.GONE:View.VISIBLE);add(root,setup);
         message=label("",16);add(root,message);
         button(root,"Diagnostic et limites",()->new AlertDialog.Builder(this).setTitle("Diagnostic")
-            .setMessage("Capture : MediaProjection Android 14 à 160×90, ~5 images analysées/s.\n"+
-                "LED : quatre couleurs DP61, 200 ms minimum.\n"+
+            .setMessage("Capture : MediaProjection Android 14 à 160×90, ~12 images analysées/s (maximum).\n"+
+                "LED : quatre couleurs DP61, cadence adaptive 200 à 160 ms. Ordre gauche/droite corrigé, ajustable.\n"+
                 "Recadrage automatique des bandes noires stabilisé sur plusieurs images.\n"+
                 "Un effet sur la lecture 4K/HDR reste possible ; la compatibilité ne peut être confirmée que sur la télévision.")
             .setPositiveButton("OK",null).show());

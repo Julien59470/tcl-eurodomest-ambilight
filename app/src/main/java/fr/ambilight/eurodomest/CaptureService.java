@@ -44,6 +44,7 @@ public final class CaptureService extends Service {
     private Settings config;
     private final FrameAnalyzer analyzer=new FrameAnalyzer();
     private long lastRead=0;
+    private volatile long responseMax=0, adaptiveInterval=200, readWindowStart=0, readsInWindow=0, latestFps=0;
 
     public static void start(android.content.Context context,int code,Intent result){
         Intent i=new Intent(context,CaptureService.class).setAction(START)
@@ -99,43 +100,62 @@ public final class CaptureService extends Service {
             im=source.acquireLatestImage();
             if(im==null)return;
             long now=SystemClock.elapsedRealtime();
-            if(now-lastRead<180)return; // ~5.5 analyzed frames/second, no frame backlog
+            if(now-lastRead<80)return; // at most ~12.5 samples/s; latest frame only
             lastRead=now;
             Image.Plane plane=im.getPlanes()[0];
             ByteBuffer b=plane.getBuffer();
             latest=analyzer.analyze(b,im.getWidth(),im.getHeight(),plane.getRowStride(),plane.getPixelStride());
-            latestAt=now;sampled++;
+            latestAt=now;sampled++;readsInWindow++;
+            if(readWindowStart==0)readWindowStart=now;
+            if(now-readWindowStart>=4000){latestFps=readsInWindow*1000/(now-readWindowStart);readsInWindow=0;readWindowStart=now;}
         }catch(Exception e){state="Erreur analyse : "+e.getClass().getSimpleName();}
         finally{if(im!=null)im.close();}
     }
     private static String safe(Exception e){String s=e.getMessage();return s==null?"":s.replaceAll("[\\r\\n]"," ");}
     private static int[][] smooth(int[][] before,int[][] after){
-        if(before==null)return after;
+        if(before==null)return LedOrientation.physical(after,false);
         int[][] out=new int[4][3];
-        for(int i=0;i<4;i++)for(int j=0;j<3;j++)out[i][j]=(before[i][j]*35+after[i][j]*65)/100;
+        for(int i=0;i<4;i++){
+            int delta=Math.abs(before[i][0]-after[i][0])+Math.abs(before[i][1]-after[i][1])+Math.abs(before[i][2]-after[i][2]);
+            int percent=delta>110?82:(delta>40?68:45); // fast scene changes, smooth minor noise
+            for(int j=0;j<3;j++)out[i][j]=(before[i][j]*(100-percent)+after[i][j]*percent+50)/100;
+        }
         return out;
     }
     private void writeLoop(){
         TuyaClient tuya=null;int[][] previous=null;
         long retryUntil=0,lastWrite=0,lastStats=0;
+        int cleanWrites=0;long maxSinceReset=0;
         try{
             while(running){
-                try{Thread.sleep(50);}catch(InterruptedException interrupted){break;}
+                try{Thread.sleep(20);}catch(InterruptedException interrupted){break;}
                 long now=SystemClock.elapsedRealtime();
-                if(now-lastStats>1200){save();lastStats=now;}
-                if(now<retryUntil || now-lastWrite<200 || latest==null || now-latestAt>2200)continue;
-                int[][] colors=smooth(previous,latest.rgb);
-                if(previous!=null && RgbicFourZone.difference(previous,colors)<18)continue;
+                if(now-lastStats>1500){save();lastStats=now;}
+                FrameAnalyzer.Colors frame=latest;
+                if(now<retryUntil || now-lastWrite<adaptiveInterval || frame==null || now-latestAt>1500)continue;
+                // On the tested box DP61 color 0 is physical LEFT, not the first screen sample (RIGHT).
+                boolean reverse=getSharedPreferences("ambilight_v05_options",MODE_PRIVATE).getBoolean("reverse",true);
+                int[][] mapped=LedOrientation.physical(frame.rgb,reverse);
+                int[][] colors=smooth(previous,mapped);
+                if(previous!=null && RgbicFourZone.difference(previous,colors)<16)continue;
                 try{
                     if(tuya==null)tuya=new TuyaClient(config.id(),config.ip(),config.secret(),config.version());
                     lastWrite=SystemClock.elapsedRealtime();
-                    // DP61 static test has been confirmed on the user's actual device.
                     tuya.setFourColors(colors,config.uiSegments());
                     ackMs=SystemClock.elapsedRealtime()-lastWrite;
-                    previous=colors;sent++;
-                    state="Ambilight actif · 4 zones · bandes noires auto";
+                    responseMax=Math.max(responseMax,ackMs);
+                    maxSinceReset=Math.max(maxSinceReset,ackMs);
+                    previous=colors;sent++;cleanWrites++;
+                    // Speed up only after stable feedback; return to 200ms after slow ACKs/errors.
+                    if(cleanWrites>=25){
+                        if(maxSinceReset<115)adaptiveInterval=160;
+                        else adaptiveInterval=200;
+                        maxSinceReset=0;cleanWrites=0;
+                    }
+                    state="Ambilight actif · 4 zones · cadrage automatique";
                 }catch(Exception e){
                     failures++;state="Tuya : "+e.getClass().getSimpleName()+" (reconnexion automatique)";
+                    adaptiveInterval=200;cleanWrites=0;maxSinceReset=0;
                     if(tuya!=null){tuya.close();tuya=null;}
                     previous=null;retryUntil=SystemClock.elapsedRealtime()+Math.min(5000,700*(int)Math.min(7,failures));
                 }
@@ -145,7 +165,7 @@ public final class CaptureService extends Service {
     private void save(){
         FrameAnalyzer.Colors c=latest;
         String status=state+"\nImages analysées : "+sampled+" | commandes RGBIC : "+sent+
-            "\nRéponse Tuya : "+ackMs+" ms | erreurs : "+failures+
+            "\nCapture : "+latestFps+" images/s | Tuya : "+adaptiveInterval+" ms | réponse : "+ackMs+" ms (max "+responseMax+" ms) | erreurs : "+failures+
             "\nBandes noires détectées : haut "+(c==null?0:c.upper)+" px / bas "+(c==null?0:c.lower)+" px (image réduite)";
         getSharedPreferences("ambilight_v04_runtime",MODE_PRIVATE).edit().putString("status",status).apply();
     }

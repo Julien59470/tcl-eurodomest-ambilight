@@ -1,5 +1,6 @@
 import java.nio.ByteBuffer;
 import fr.ambilight.eurodomest.FrameAnalyzer;
+import fr.ambilight.eurodomest.LedOrientation;
 public class FrameAnalyzerTests {
   static void check(boolean cond, String msg){if(!cond)throw new AssertionError(msg);}
   static ByteBuffer img(int w,int h,int top,int bottom){
@@ -19,6 +20,12 @@ public class FrameAnalyzerTests {
     b=img(160,90,0,0);
     for(int i=0;i<5;i++)c=a.analyze(b,160,90,640,4);
     check(c.upper==0&&c.lower==0,"Crop did not clear");
-    System.out.println("FrameAnalyzer: letterbox + 4 zones OK");
+    int[][] logical = { {0,0,255},{1,2,3},{4,5,6},{255,0,0} }; // first logical is RIGHT
+    int[][] physical=LedOrientation.physical(logical,true);
+    check(physical[0][0]==255 && physical[3][2]==255,"Physical strip must reverse DP61");
+    check(logical[0][2]==255,"Source must not be modified");
+    physical=LedOrientation.physical(logical,false);
+    check(physical[0][2]==255,"Manual orientation toggle failed");
+    System.out.println("FrameAnalyzer: letterbox + RGB zones + direction DP61 OK");
   }
 }
