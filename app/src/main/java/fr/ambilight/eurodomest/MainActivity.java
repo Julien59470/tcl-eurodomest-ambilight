@@ -10,7 +10,6 @@ import android.media.projection.MediaProjectionConfig;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
@@ -150,7 +149,7 @@ public final class MainActivity extends Activity {
                 .setTitle("Autoriser la capture sans pictogramme")
                 .setMessage("Dans les paramètres Android, activez le service 'Ambilight TCL - capture locale' sous Accessibilité. Il analyse seulement les couleurs et ne conserve aucune image. Revenez ensuite à la vidéo : le service démarrera automatiquement.")
                 .setPositiveButton("Ouvrir Accessibilité",(d,w)->{
-                    try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}
+                    try{startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));}
                     catch(Exception e){error("Impossible d'ouvrir les paramètres : "+e.getMessage());}
                 }).setNegativeButton("Annuler",(d,w)->AccessibilityCaptureService.enable(this,false)).show();
             return;
