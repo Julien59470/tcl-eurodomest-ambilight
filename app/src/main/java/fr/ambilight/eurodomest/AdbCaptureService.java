@@ -122,6 +122,7 @@ public final class AdbCaptureService extends Service {
             }
         }
         save();
+        if(running){running=false;stopSelf();}
     }
     private static int[][] smooth(int[][] previous,int[][] fresh){
         if(previous==null)return fresh;
@@ -180,7 +181,9 @@ public final class AdbCaptureService extends Service {
         if(camera!=null)camera.interrupt();
         if(writer!=null)writer.interrupt();
         try{AdbBridge.get().cancelCapture();}catch(Exception ignored){}
-        small.recycle();state="Capture ADB arrêtée";save();
+        small.recycle();
+        if(!state.contains("Arrêt après 4 erreurs"))state="Capture ADB arrêtée";
+        save();
         super.onDestroy();
     }
     @Override public IBinder onBind(Intent intent){return null;}
