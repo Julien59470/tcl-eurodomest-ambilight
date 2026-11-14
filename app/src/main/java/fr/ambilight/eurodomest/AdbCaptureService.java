@@ -67,10 +67,14 @@ public final class AdbCaptureService extends Service {
     }
     private void captureLoop(){
         long lastStats=0;
+        int consecutiveFailures=0;
         while(running){
+            String step="Connexion TLS";
             try{
                 AdbBridge adb=AdbBridge.get();
-                if(!adb.isConnected() && !adb.connectLocal(this))throw new IllegalStateException("ADB non associé ou débogage sans fil désactivé");
+                if(!adb.isConnected() && !adb.connectLocal(this))
+                    throw new IllegalStateException("ADB non associé ou débogage sans fil désactivé");
+                step="Commande screencap";
                 long t=SystemClock.elapsedRealtime();
                 byte[] png=adb.screenshotPng();
                 BitmapFactory.Options opts=new BitmapFactory.Options();
@@ -88,6 +92,7 @@ public final class AdbCaptureService extends Service {
                     }
                     FrameAnalyzer.Colors fresh=analyzer.analyze(bytes,W,H,W*4,4);
                     latest=fresh;latestAt=SystemClock.elapsedRealtime();readCount++;
+                    consecutiveFailures=0;
                     captureMs=latestAt-t;
                     // Raise delay if composing a full-resolution screenshot is slow.
                     captureDelay=captureMs>900?1100:captureMs>500?750:450;
@@ -98,9 +103,21 @@ public final class AdbCaptureService extends Service {
                 if(SystemClock.elapsedRealtime()-lastStats>1300){save();lastStats=SystemClock.elapsedRealtime();}
             }catch(InterruptedException interrupted){break;}
              catch(Exception error){
-                errors++;state="ADB : "+error.getClass().getSimpleName()+" (vérifier débogage sans fil)";
+                errors++;consecutiveFailures++;
+                String msg=error.getMessage();
+                if(msg==null||msg.isEmpty())msg=error.getClass().getSimpleName();
+                msg=msg.replaceAll("[\\r\\n\\t]"," ");
+                if(msg.length()>170)msg=msg.substring(0,170);
+                state=step+" : "+msg;
+                if("Commande screencap".equals(step))
+                    state+=" | Si le firmware bloque screencap, le mode ADB ne peut pas capturer.";
                 save();
                 try{AdbBridge.get().disconnectSafely();}catch(Exception ignored){}
+                if(consecutiveFailures>=4){
+                    state+=" | Arrêt après 4 erreurs. Mode de secours disponible.";
+                    save();
+                    break;
+                }
                 try{Thread.sleep(2500);}catch(InterruptedException e){break;}
             }
         }
@@ -156,7 +173,7 @@ public final class AdbCaptureService extends Service {
         String output=state+"\nCaptures : "+readCount+" | temps capture : "+captureMs+" ms | pause : "+captureDelay+" ms"+
             "\nCommandes Tuya : "+writeCount+" | intervalle : "+rateMs+" ms | réponse : "+lastAck+" ms (max "+maxAck+") | erreurs : "+errors+
             "\nBandes noires : haut "+(c==null?0:c.upper)+" / bas "+(c==null?0:c.lower)+" px";
-        getSharedPreferences("ambilight_v07_runtime",MODE_PRIVATE).edit().putString("status",output).apply();
+        getSharedPreferences("ambilight_v08_runtime",MODE_PRIVATE).edit().putString("status",output).apply();
     }
     @Override public void onDestroy(){
         running=false;

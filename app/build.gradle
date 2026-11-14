@@ -3,11 +3,11 @@ android {
     namespace 'fr.ambilight.eurodomest'
     compileSdk 35
     defaultConfig {
-        applicationId 'fr.ambilight.eurodomest.autonome.v07'
+        applicationId 'fr.ambilight.eurodomest.autonome.v08'
         minSdk 26
         targetSdk 35
-        versionCode 7
-        versionName '0.7.0-experimental'
+        versionCode 8
+        versionName '0.8.0-experimental'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

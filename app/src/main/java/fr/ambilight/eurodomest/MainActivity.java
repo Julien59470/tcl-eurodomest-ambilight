@@ -41,7 +41,7 @@ public final class MainActivity extends Activity {
     private Button confirm;
     private boolean tested=false;
     private final Runnable refresh=new Runnable(){@Override public void run(){
-        if(status!=null){String s=getSharedPreferences("ambilight_v07_runtime",MODE_PRIVATE).getString("status","Mode ADB prêt : association nécessaire");
+        if(status!=null){String s=getSharedPreferences("ambilight_v08_runtime",MODE_PRIVATE).getString("status","Mode ADB prêt : association nécessaire");
             status.setText(s);}
         handler.postDelayed(this,1200);
     }};
@@ -65,11 +65,13 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BG);
         LinearLayout root=col();root.setPadding(dp(34),dp(14),dp(34),dp(24));scroll.addView(root);
         TextView heading=label("AMBILIGHT TCL",30);heading.setTextColor(ACCENT);add(root,heading);
-        add(root,label("Autonome · Eurodomest RGBIC · 3 côtés · v0.7 ADB expérimental",16));
+        add(root,label("Autonome · Eurodomest RGBIC · 3 côtés · v0.8 diagnostic ADB",16));
         LinearLayout main=col();main.setPadding(dp(18),dp(10),dp(18),dp(15));main.setBackgroundColor(PANEL);add(root,main);
         status=label("Prêt à démarrer",17);add(main,status);
         button(main,"DÉMARRER SANS PICTOGRAMME (ADB)",this::startAdbCapture);
         button(main,"Associer ADB sans PC (Safari sur iPhone)",this::openAdbPairing);
+        button(main,"Renseigner le port ADB de connexion (si erreur)",this::setAdbPort);
+        button(main,"Vérifier connexion et capture ADB",this::checkAdbCapture);
         button(main,"Capture de secours (MediaProjection)",this::requestCapture);
         button(main,"Arrêter",()->{AdbCaptureService.stop(this);CaptureService.stop(this);notice("Synchronisation arrêtée.");});
         add(main,label("Capture globale des menus et applications compatibles. Première association via code ADB depuis Safari sur ton iPhone, puis aucune commande à taper. 4K/HDR reste expérimentale.",15));
@@ -100,7 +102,7 @@ public final class MainActivity extends Activity {
         setup.setVisibility(settings.approved()&&settings.hasSecret()?View.GONE:View.VISIBLE);add(root,setup);
         message=label("",16);add(root,message);
         button(root,"Diagnostic et limites",()->new AlertDialog.Builder(this).setTitle("Diagnostic")
-            .setMessage("Capture ADB sans indicateur MediaProjection : screencap via shell ADB TLS après association.\n"+
+            .setMessage("Capture globale ADB TLS : port de connexion automatique mDNS ou saisie directe.\n"+
                 "Il s'agit de captures PNG complètes, susceptibles de ralentir la TV ; aucune garantie 4K HDR.\n"+
                 "LED : quatre couleurs DP61, cadence 200 à 160 ms selon réponses Tuya.\n"+
                 "Recadrage automatique des bandes noires stabilisé sur plusieurs images.\n"+
@@ -139,6 +141,54 @@ public final class MainActivity extends Activity {
                 settings.setApproved(true);settings.setRgbic(true);confirm.setEnabled(false);
                 notice("Eurodomest validé. Appuyer sur DÉMARRER AMBILIGHT puis autoriser l'écran entier.");
             }).setNegativeButton("Non",(d,w)->{settings.setApproved(false);notice("Mode automatique désactivé.");}).show();
+    }
+    private void setAdbPort(){
+        int saved=getSharedPreferences("ambilight_adb_v08",MODE_PRIVATE).getInt("tls_connect_port",0);
+        EditText edit=field("Port de connexion ADB, ex. 39577",saved>0?Integer.toString(saved):"",false);
+        edit.setInputType(InputType.TYPE_CLASS_NUMBER);
+        new AlertDialog.Builder(this)
+            .setTitle("Port de connexion ADB (TLS)")
+            .setMessage("Sur la TCL : Options développeur > Débogage sans fil > Adresse IP et port. Saisis uniquement le numéro APRÈS les deux-points. Ce n'est PAS le port de la fenêtre d'association à six chiffres.")
+            .setView(edit)
+            .setPositiveButton("Enregistrer",(d,w)->{
+                try{
+                    int port=Integer.parseInt(edit.getText().toString().trim());
+                    if(port<1024||port>65535)throw new NumberFormatException();
+                    getSharedPreferences("ambilight_adb_v08",MODE_PRIVATE).edit()
+                        .putInt("tls_connect_port",port).apply();
+                    notice("Port TLS "+port+" enregistré. Appuie sur Vérifier connexion et capture ADB.");
+                }catch(NumberFormatException error){error("Port invalide : il faut un nombre entre 1024 et 65535.");}
+            })
+            .setNeutralButton("Automatique",(d,w)->{
+                getSharedPreferences("ambilight_adb_v08",MODE_PRIVATE).edit()
+                    .remove("tls_connect_port").apply();
+                notice("Connexion ADB configurée en découverte automatique mDNS.");
+            })
+            .setNegativeButton("Annuler",null).show();
+    }
+    private void checkAdbCapture(){
+        AdbCaptureService.stop(this);
+        notice("Vérification ADB : connexion puis capture PNG en cours...");
+        executor.execute(()->{
+            String stage="Connexion TLS";
+            try{
+                AdbBridge bridge=AdbBridge.get();
+                if(!bridge.isConnected()&&!bridge.connectLocal(this))
+                    throw new IllegalStateException("Connexion ADB refusée");
+                stage="Commande screencap";
+                long start=android.os.SystemClock.elapsedRealtime();
+                byte[] frame=bridge.screenshotPng();
+                long elapsed=android.os.SystemClock.elapsedRealtime()-start;
+                String good="ADB et capture OK : "+frame.length+" octets en "+elapsed+" ms. Tu peux démarrer l'Ambilight.";
+                runOnUiThread(()->notice(good));
+            }catch(Exception e){
+                final String which=stage;
+                String msg=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();
+                if(msg.length()>180)msg=msg.substring(0,180);
+                final String why=msg;
+                runOnUiThread(()->error(which+" : "+why));
+            }
+        });
     }
     private void startAdbCapture(){
         if(!settings.approved()||!settings.rgbic()||!settings.hasSecret()){

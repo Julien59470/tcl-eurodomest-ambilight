@@ -136,8 +136,29 @@ public final class AdbBridge extends AbsAdbConnectionManager {
     public synchronized boolean connectLocal(Context context)throws Exception{
         if(isConnected())return true;
         try{disconnect();}catch(Exception ignored){}
-        boolean found=connectTls(context.getApplicationContext(),7000);
-        return found||isConnected();
+        Exception discoveryError=null;
+        try{
+            if(connectTls(context.getApplicationContext(),3500)||isConnected())return true;
+        }catch(Exception error){discoveryError=error;}
+        int port=context.getSharedPreferences("ambilight_adb_v08",Context.MODE_PRIVATE)
+            .getInt("tls_connect_port",0);
+        if(port>=1024&&port<=65535){
+            try{
+                try{disconnect();}catch(Exception ignored){}
+                if(connect("127.0.0.1",port)||isConnected())return true;
+                throw new java.io.IOException("Connexion TLS refusée");
+            }catch(Exception directError){
+                throw new java.io.IOException("Échec port TLS "+port+" : "+shortError(directError),directError);
+            }
+        }
+        throw new java.io.IOException("Découverte automatique mDNS échouée : "+
+            shortError(discoveryError)+". Renseigner le port de CONNEXION affiché dans Débogage sans fil.");
+    }
+    private static String shortError(Exception e){
+        if(e==null)return "pas de service TLS découvert";
+        String message=e.getMessage();
+        if(message==null||message.trim().isEmpty())message=e.getClass().getSimpleName();
+        return message.replaceAll("[\\r\\n\\t]"," ").substring(0,Math.min(160,message.length()));
     }
     public byte[] screenshotPng()throws Exception{
         AdbStream stream;
@@ -155,8 +176,12 @@ public final class AdbBridge extends AbsAdbConnectionManager {
                 bytes.write(buf,0,count);
             }
             byte[] out=bytes.toByteArray();
-            if(out.length<16||out[0]!=(byte)0x89||out[1]!='P'||out[2]!='N'||out[3]!='G')
-                throw new IllegalStateException("Le shell ADB n'a pas fourni de PNG valide");
+            if(out.length<16||out[0]!=(byte)0x89||out[1]!='P'||out[2]!='N'||out[3]!='G'){
+                String prefix=new String(out,0,Math.min(out.length,100),java.nio.charset.StandardCharsets.UTF_8)
+                    .replaceAll("[^\\x20-\\x7E]"," ");
+                throw new IllegalStateException("ADB connecté mais screencap ne retourne pas de PNG ("+
+                    out.length+" octets) : "+prefix);
+            }
             return out;
         }finally{activeCapture=null;}
     }
