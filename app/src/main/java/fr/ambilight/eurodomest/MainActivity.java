@@ -15,9 +15,13 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.view.inputmethod.InputMethodManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.WindowManager;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -76,7 +80,7 @@ public final class MainActivity extends Activity {
         LinearLayout root=column();root.setPadding(dp(28),dp(12),dp(28),dp(24));
         scroll.addView(root);
         TextView heading=text("AMBILIGHT TCL",29);heading.setTextColor(ACCENT);add(root,heading);
-        add(root,text("Eurodomest RGBIC · 3 côtés · v1.0 MediaProjection · 4–20 zones",16));
+        add(root,text("Eurodomest RGBIC · 3 côtés · v1.0.1 MediaProjection · 4–20 zones",16));
         LinearLayout panel=column();panel.setPadding(dp(15),dp(10),dp(15),dp(12));
         panel.setBackgroundColor(PANEL);add(root,panel);
         status=text("Arrêté",16);add(panel,status);
@@ -85,6 +89,7 @@ public final class MainActivity extends Activity {
             CaptureService.stop(this);notice("Arrêt demandé.");
         });
         zoneState=text("Profil RGBIC validé : "+settings.zones()+" zones",16);add(panel,zoneState);
+        button(panel,"SAISIR LA LOCAL KEY (CLAVIER TV)",this::editLocalKey);
         button(panel,"DIAGNOSTIC TUYA (LECTURE SEULE)",this::readTuyaStatus);
         button(panel,"TESTER LE PALIER RGBIC SUIVANT",this::testNext);
         button(panel,"RÉTABLIR LE PROFIL VALIDÉ",this::restoreColors);
@@ -105,7 +110,8 @@ public final class MainActivity extends Activity {
         for(int i=0;i<vals.length;i++)if(vals[i].equals(settings.version()))version.setSelection(i);
         add(setup,version);
         add(setup,text("LOCAL KEY (chiffrée sur la TV, jamais incluse dans le dépôt)",15));
-        key=field("Saisir une Local Key de 16 octets", "",true);add(setup,key);
+        key=field("Local Key temporaire", "",true);
+        button(setup,"SAISIR / MODIFIER LA LOCAL KEY",this::editLocalKey);
         secretState=text(settings.hasSecret()?"Local Key déjà enregistrée":"Local Key absente",15);add(setup,secretState);
         button(setup,"ENREGISTRER LA CONFIGURATION",this::saveDevice);
         button(setup,"TESTER 4 COULEURS (VALIDATION INITIALE)",this::testFour);
@@ -126,6 +132,64 @@ public final class MainActivity extends Activity {
     private void error(String msg){
         notice(msg);new AlertDialog.Builder(this).setTitle("Diagnostic").setMessage(msg).setPositiveButton("OK",null).show();
     }
+    /** The remote focuses this button; the text entry lives in a separate dialog.
+     * This avoids the Android TV D-pad skipping a password EditText inside a ScrollView.
+     * The value is never persisted until Enregistrer la configuration is pressed.
+     */
+    private void editLocalKey(){
+        EditText input=field("Local Key Tuya (16 octets)",key.getText().toString(),true);
+        input.setSingleLine(true);
+        input.setSelectAllOnFocus(true);
+        input.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        input.setFocusable(true);
+        input.setFocusableInTouchMode(true);
+        LinearLayout body=column();
+        body.setPadding(dp(20),dp(10),dp(20),dp(10));
+        add(body,text("Saisir la clé avec le clavier TV, puis valider. Le texte reste masqué par défaut.",15));
+        add(body,input);
+        CheckBox visible=new CheckBox(this);
+        visible.setText("Afficher la clé pendant la saisie");
+        visible.setTextColor(Color.WHITE);
+        visible.setOnCheckedChangeListener((button,checked)->{
+            int cursor=Math.max(0,input.getSelectionStart());
+            input.setInputType(InputType.TYPE_CLASS_TEXT |
+                (checked?InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD:InputType.TYPE_TEXT_VARIATION_PASSWORD));
+            input.setSingleLine(true);
+            input.setSelection(Math.min(cursor,input.length()));
+        });
+        add(body,visible);
+        AlertDialog dialog=new AlertDialog.Builder(this)
+            .setTitle("Local Key Eurodomest")
+            .setView(body)
+            .setPositiveButton("Valider",null)
+            .setNegativeButton("Annuler",null)
+            .create();
+        dialog.setOnShowListener(ignored->{
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                String value=input.getText().toString();
+                try{
+                    TuyaWire.key(value); // Must be exactly 16 UTF-8 bytes.
+                    key.setText(value);
+                    secretState.setText("Local Key saisie : appuyer sur ENREGISTRER LA CONFIGURATION");
+                    notice("Local Key saisie temporairement. Enregistrer la configuration.");
+                    dialog.dismiss();
+                }catch(Exception e){
+                    input.setError("Local Key invalide : 16 octets UTF-8 requis");
+                    input.requestFocus();
+                }
+            });
+            input.requestFocus();
+            dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+            input.postDelayed(()->{
+                if(dialog.isShowing()){
+                    InputMethodManager keyboard=(InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);
+                    keyboard.showSoftInput(input,InputMethodManager.SHOW_IMPLICIT);
+                }
+            },180);
+        });
+        dialog.show();
+    }
+
     private void saveDevice(){
         try{
             String address=ip.getText().toString().trim(),device=id.getText().toString().trim();

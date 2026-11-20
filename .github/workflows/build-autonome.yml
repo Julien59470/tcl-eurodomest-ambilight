@@ -1,4 +1,4 @@
-name: Build and publish Ambilight MediaProjection v1.0
+name: Build and publish Ambilight MediaProjection v1.0.1
 on:
   push:
     branches: [main]
@@ -43,15 +43,15 @@ jobs:
           sha256sum app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: TCL-Eurodomest-MediaProjection-v1.0.0
+          name: TCL-Eurodomest-MediaProjection-v1.0.1
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Publish direct APK for Downloader
         if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Eurodomest-Ambilight-TCL-MEDIAPROJECTION-v1.0.0.apk
+          cp app/build/outputs/apk/debug/app-debug.apk Eurodomest-Ambilight-TCL-MEDIAPROJECTION-v1.0.1.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f Eurodomest-Ambilight-TCL-MEDIAPROJECTION-v1.0.0.apk
-          git commit -m "Publication APK MediaProjection v1.0.0 [skip ci]" || exit 0
+          git add -f Eurodomest-Ambilight-TCL-MEDIAPROJECTION-v1.0.1.apk
+          git commit -m "Publication APK MediaProjection v1.0.1 [skip ci]" || exit 0
           git push origin HEAD:main
