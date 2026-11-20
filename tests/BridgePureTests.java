@@ -67,6 +67,17 @@ public class BridgePureTests {
         check(TuyaWire.deriveSession(34,key,nonce,other).length==16,"v3.4 session key");
         check(TuyaWire.deriveSession(35,key,nonce,other).length==16,"v3.5 session key");
         check(!Arrays.equals(TuyaWire.deriveSession(34,key,nonce,other),TuyaWire.deriveSession(35,key,nonce,other)),"version-specific session keys");
+        for(int n:new int[]{4,8,12,16,20}){
+            int[][] many=new int[n][3];
+            for(int i=0;i<n;i++)many[i]=new int[]{(i*11)%256,(i*23)%256,(i*47)%256};
+            byte[] raw=java.util.Base64.getDecoder().decode(RgbicFourZone.dp61(many,20));
+            check(raw.length==5+6*n&&raw.length<=128,"DP61 multi-zone "+n);
+        }
+        try{
+            int[][] tooMany=new int[24][3];for(int i=0;i<24;i++)tooMany[i]=new int[]{1,2,3};
+            RgbicFourZone.dp61(tooMany,20);
+            throw new AssertionError("24 zones accepted");
+        }catch(IllegalArgumentException expected){pass++;}
         System.out.println("OK : "+pass+" tests locaux (moyenne, HSV, AES ECB, HMAC, AES-GCM, intégrité, session key)");
     }
     private static byte[] make55Response(byte[] req,boolean hmac,byte[] key) throws Exception {

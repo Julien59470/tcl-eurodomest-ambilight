@@ -25,6 +25,16 @@ public final class Settings {
     public boolean approved(){return pref.getBoolean("approved",false);}
     public boolean rgbic(){return pref.getBoolean("rgbic",false);}
     public int uiSegments(){return pref.getInt("uiSegments",20);}
+    public int zones(){
+        int n=pref.getInt("validated_zones",4);
+        return n>=4&&n<=20&&n%4==0?n:4;
+    }
+    public void setZones(int n){
+        if(n<4||n>20||n%4!=0)throw new IllegalArgumentException("Nombre de zones invalide");
+        if(!approved()||!rgbic())throw new IllegalStateException("Valider d'abord le test 4 couleurs");
+        if(!pref.edit().putInt("validated_zones",n).commit())
+            throw new IllegalStateException("Impossible d'enregistrer le profil RGBIC");
+    }
     public int intervalMs(){return pref.getInt("interval_ms",333);}
     public void setIntervalMs(int millis){if(millis!=200&&millis!=250&&millis!=333&&millis!=500&&millis!=667)throw new IllegalArgumentException("Cadence invalide");pref.edit().putInt("interval_ms",millis).apply();}
     public int rotation(){return pref.getInt("rotation",0);}
@@ -46,7 +56,7 @@ public final class Settings {
             ed.putString("key_cipher",encrypt(newKey));
             java.util.Arrays.fill(k,(byte)0);
         }
-        if(modified)ed.putBoolean("approved",false).putBoolean("boot",false).putBoolean("rgbic",false);
+        if(modified)ed.putBoolean("approved",false).putBoolean("boot",false).putBoolean("rgbic",false).putInt("validated_zones",4);
         if(!ed.commit())throw new IllegalStateException("Écriture du stockage Android impossible");
     }
     public String secret() throws Exception {

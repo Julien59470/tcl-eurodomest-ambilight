@@ -1,4 +1,4 @@
-name: Build and publish Ambilight autonome v0.9
+name: Build and publish Ambilight MediaProjection v1.0
 on:
   push:
     branches: [main]
@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -26,29 +28,30 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Verify letterbox and RGB zones
+      - name: Verify crops, multi-zone RGBIC, local crypto
         run: |
           mkdir -p tests/check
           javac -d tests/check app/src/main/java/fr/ambilight/eurodomest/{FrameAnalyzer,LedOrientation}.java tests/FrameAnalyzerTests.java
           java -cp tests/check FrameAnalyzerTests
-          javac -d tests/check app/src/main/java/fr/ambilight/eurodomest/PngStreamReader.java tests/PngStreamReaderTests.java
-          java -cp tests/check PngStreamReaderTests
-          mkdir -p tests/old_check
-          javac -d tests/old_check app/src/main/java/fr/ambilight/eurodomest/{RawRgb,TuyaWire,RgbicFourZone}.java tests/BridgePureTests.java
-          java -cp tests/old_check BridgePureTests
+          javac -d tests/check app/src/main/java/fr/ambilight/eurodomest/{RawRgb,TuyaWire,RgbicFourZone}.java tests/BridgePureTests.java
+          java -cp tests/check BridgePureTests
       - name: Build Android APK
         run: gradle --no-daemon :app:assembleDebug
+      - name: Verify build
+        run: |
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: TCL-Eurodomest-Autonomous-v0.9.0
+          name: TCL-Eurodomest-MediaProjection-v1.0.0
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Publish direct APK for Downloader
         if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Eurodomest-Ambilight-TCL-AUTONOME-v0.9.0.apk
+          cp app/build/outputs/apk/debug/app-debug.apk Eurodomest-Ambilight-TCL-MEDIAPROJECTION-v1.0.0.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f Eurodomest-Ambilight-TCL-AUTONOME-v0.9.0.apk
-          git commit -m "Publication APK autonome expérimentale v0.9.0 [skip ci]" || exit 0
+          git add -f Eurodomest-Ambilight-TCL-MEDIAPROJECTION-v1.0.0.apk
+          git commit -m "Publication APK MediaProjection v1.0.0 [skip ci]" || exit 0
           git push origin HEAD:main

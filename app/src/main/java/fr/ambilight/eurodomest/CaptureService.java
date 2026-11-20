@@ -22,7 +22,7 @@ import android.os.IBinder;
 import android.os.SystemClock;
 import java.nio.ByteBuffer;
 
-/** Experimental standalone media-projection -> 4-zones -> Tuya DP61 pipeline.
+/** Standalone MediaProjection -> up to 20 RGBIC zones -> Tuya DP61 pipeline.
  * Do not start without a fresh Android screen-capture consent on Android 14.
  */
 public final class CaptureService extends Service {
@@ -42,6 +42,7 @@ public final class CaptureService extends Service {
     private ImageReader reader;
     private Thread writer;
     private Settings config;
+    private int selectedZones=4;
     private final FrameAnalyzer analyzer=new FrameAnalyzer();
     private long lastRead=0;
     private volatile long responseMax=0, adaptiveInterval=200, readWindowStart=0, readsInWindow=0, latestFps=0;
@@ -71,6 +72,7 @@ public final class CaptureService extends Service {
         if(Build.VERSION.SDK_INT>=29)startForeground(CHANNEL,notification,ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
         else startForeground(CHANNEL,notification);
         running=true;
+        selectedZones=config.zones();
         state="Initialisation de la capture";save();
         try{
             int code=intent.getIntExtra(EXTRA_RESULT,Activity.RESULT_CANCELED);
@@ -104,7 +106,7 @@ public final class CaptureService extends Service {
             lastRead=now;
             Image.Plane plane=im.getPlanes()[0];
             ByteBuffer b=plane.getBuffer();
-            latest=analyzer.analyze(b,im.getWidth(),im.getHeight(),plane.getRowStride(),plane.getPixelStride());
+            latest=analyzer.analyzeZones(b,im.getWidth(),im.getHeight(),plane.getRowStride(),plane.getPixelStride(),selectedZones);
             latestAt=now;sampled++;readsInWindow++;
             if(readWindowStart==0)readWindowStart=now;
             if(now-readWindowStart>=4000){latestFps=readsInWindow*1000/(now-readWindowStart);readsInWindow=0;readWindowStart=now;}
@@ -114,8 +116,8 @@ public final class CaptureService extends Service {
     private static String safe(Exception e){String s=e.getMessage();return s==null?"":s.replaceAll("[\\r\\n]"," ");}
     private static int[][] smooth(int[][] before,int[][] after){
         if(before==null)return LedOrientation.physical(after,false);
-        int[][] out=new int[4][3];
-        for(int i=0;i<4;i++){
+        int[][] out=new int[after.length][3];
+        for(int i=0;i<after.length;i++){
             int delta=Math.abs(before[i][0]-after[i][0])+Math.abs(before[i][1]-after[i][1])+Math.abs(before[i][2]-after[i][2]);
             int percent=delta>110?82:(delta>40?68:45); // fast scene changes, smooth minor noise
             for(int j=0;j<3;j++)out[i][j]=(before[i][j]*(100-percent)+after[i][j]*percent+50)/100;
@@ -147,12 +149,8 @@ public final class CaptureService extends Service {
                     maxSinceReset=Math.max(maxSinceReset,ackMs);
                     previous=colors;sent++;cleanWrites++;
                     // Speed up only after stable feedback; return to 200ms after slow ACKs/errors.
-                    if(cleanWrites>=25){
-                        if(maxSinceReset<115)adaptiveInterval=160;
-                        else adaptiveInterval=200;
-                        maxSinceReset=0;cleanWrites=0;
-                    }
-                    state="Ambilight actif · 4 zones · cadrage automatique";
+                    if(cleanWrites>=25){adaptiveInterval=200;maxSinceReset=0;cleanWrites=0;}
+                    state="Ambilight actif · "+selectedZones+" zones · cadrage automatique 4 côtés";
                 }catch(Exception e){
                     failures++;state="Tuya : "+e.getClass().getSimpleName()+" (reconnexion automatique)";
                     adaptiveInterval=200;cleanWrites=0;maxSinceReset=0;
@@ -166,7 +164,10 @@ public final class CaptureService extends Service {
         FrameAnalyzer.Colors c=latest;
         String status=state+"\nImages analysées : "+sampled+" | commandes RGBIC : "+sent+
             "\nCapture : "+latestFps+" images/s | Tuya : "+adaptiveInterval+" ms | réponse : "+ackMs+" ms (max "+responseMax+" ms) | erreurs : "+failures+
-            "\nBandes noires détectées : haut "+(c==null?0:c.upper)+" px / bas "+(c==null?0:c.lower)+" px (image réduite)";
+            "\nBandes noires : haut "+(c==null?0:c.upper)+" / bas "+(c==null?0:c.lower)+
+            " / gauche "+(c==null?0:c.left)+" / droite "+(c==null?0:c.right)+
+            " px (160x90) | lumière "+(c==null?0:c.brightness)+
+            " | scène sombre "+(c!=null&&c.darkFrame);
         getSharedPreferences("ambilight_v07_media_runtime",MODE_PRIVATE).edit().putString("status",status).apply();
     }
     @Override public void onDestroy(){

@@ -1,19 +1,20 @@
 package fr.ambilight.eurodomest;
 
-/** Maps screen zones to the real DP61 order. The Eurodomest tested strip
- * displays the DP61 first color at the physical LEFT end, while the camera's
- * first sample is the RIGHT side (strip cable starts bottom right).
+/** Right bottom -> right top -> top right -> top left -> left bottom.
+ * On the verified Eurodomest DP61 ordering, physical output is reversed.
  */
 public final class LedOrientation {
-    private LedOrientation() { }
-    public static int[][] physical(int[][] screen, boolean reversed) {
-        if (screen == null || screen.length != 4) throw new IllegalArgumentException("Four zones required");
-        int[][] result = new int[4][3];
-        for (int i = 0; i < 4; i++) {
-            int[] src = screen[reversed ? 3-i : i];
-            if (src == null || src.length != 3) throw new IllegalArgumentException("Invalid RGB zone");
-            result[i] = src.clone();
+    private LedOrientation(){}
+    public static int[][] physical(int[][] logical,boolean reversed){
+        if(logical==null||logical.length<4||logical.length>20||logical.length%4!=0)
+            throw new IllegalArgumentException("Zones invalides");
+        int n=logical.length;
+        int[][] physical=new int[n][3];
+        for(int i=0;i<n;i++){
+            int[] source=logical[reversed?n-i-1:i];
+            if(source==null||source.length!=3)throw new IllegalArgumentException("Couleur invalide");
+            physical[i]=source.clone();
         }
-        return result;
+        return physical;
     }
 }
