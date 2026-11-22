@@ -35,6 +35,43 @@ public final class Settings {
         if(!pref.edit().putInt("validated_zones",n).commit())
             throw new IllegalStateException("Impossible d'enregistrer le profil RGBIC");
     }
+    /** Mappings are a verified permutation, keyed by logical segment count. */
+    public int[] mapping(int count){
+        boolean reversed=pref.getBoolean("mapping_reverse",true);
+        return SegmentMapping.decode(pref.getString("mapping_"+count,""),count,reversed);
+    }
+    public void assignSegment(int count,int physicalIndex,int screenIndex){
+        int[] result=SegmentMapping.swap(mapping(count),physicalIndex,screenIndex);
+        if(!pref.edit().putString("mapping_"+count,SegmentMapping.encode(result)).commit())
+            throw new IllegalStateException("Enregistrement du mapping impossible");
+    }
+    public void resetMapping(int count){
+        pref.edit().remove("mapping_"+count).commit();
+    }
+    public void reverseMapping(int count){
+        int[] old=mapping(count);
+        int[] flipped=new int[count];
+        for(int i=0;i<count;i++)flipped[i]=old[count-1-i];
+        pref.edit().putString("mapping_"+count,SegmentMapping.encode(flipped)).commit();
+    }
+    public ColorEngine.Config colorConfig(){
+        return new ColorEngine.Config(pref.getInt("color_brightness",75),
+            pref.getInt("color_black",4),pref.getInt("color_red",100),
+            pref.getInt("color_green",100),pref.getInt("color_blue",100),
+            pref.getInt("color_gamma10",12)/10.0,pref.getInt("color_smooth",45));
+    }
+    public void setColorConfig(ColorEngine.Config c){
+        pref.edit().putInt("color_brightness",c.brightness).putInt("color_black",c.black)
+            .putInt("color_red",c.red).putInt("color_green",c.green)
+            .putInt("color_blue",c.blue).putInt("color_gamma10",(int)Math.round(c.gamma*10))
+            .putInt("color_smooth",c.smooth).commit();
+    }
+    public boolean blackVerified(){return pref.getBoolean("black_verified",false);}
+    public void setBlackVerified(boolean verified){
+        pref.edit().putBoolean("black_verified",verified).commit();
+    }
+    public boolean blackOnStop(){return pref.getBoolean("black_on_stop",true)&&blackVerified();}
+    public void setBlackOnStop(boolean enabled){pref.edit().putBoolean("black_on_stop",enabled).commit();}
     public int intervalMs(){return pref.getInt("interval_ms",333);}
     public void setIntervalMs(int millis){if(millis!=200&&millis!=250&&millis!=333&&millis!=500&&millis!=667)throw new IllegalArgumentException("Cadence invalide");pref.edit().putInt("interval_ms",millis).apply();}
     public int rotation(){return pref.getInt("rotation",0);}

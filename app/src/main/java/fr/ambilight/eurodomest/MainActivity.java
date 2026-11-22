@@ -27,6 +27,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
 import org.json.JSONObject;
 import java.net.InetAddress;
 import java.util.concurrent.ExecutorService;
@@ -43,11 +46,16 @@ public final class MainActivity extends Activity {
     private EditText ip,id,key;
     private Spinner version;
     private Button fourConfirm;
+    private LinearLayout sourceBar,outputBar;
     private boolean fourSent=false;
     private String lastDiagnostic="";
     private final Runnable refresh=new Runnable(){@Override public void run(){
-        if(status!=null)status.setText(getSharedPreferences("ambilight_v07_media_runtime",MODE_PRIVATE)
-            .getString("status","Capture MediaProjection arrêtée. Configurer le boîtier pour commencer."));
+        if(status!=null){
+            android.content.SharedPreferences p=getSharedPreferences("ambilight_v07_media_runtime",MODE_PRIVATE);
+            status.setText(p.getString("status","Capture MediaProjection arrêtée. Configurer le boîtier pour commencer."));
+            paintBar(sourceBar,p.getString("preview_source",""));
+            paintBar(outputBar,p.getString("preview_output",""));
+        }
         handler.postDelayed(this,1200);
     }};
     @Override public void onCreate(Bundle saved){
@@ -80,7 +88,7 @@ public final class MainActivity extends Activity {
         LinearLayout root=column();root.setPadding(dp(28),dp(12),dp(28),dp(24));
         scroll.addView(root);
         TextView heading=text("AMBILIGHT TCL",29);heading.setTextColor(ACCENT);add(root,heading);
-        add(root,text("Eurodomest RGBIC · 3 côtés · v1.0.1 MediaProjection · 4–20 zones",16));
+        add(root,text("Eurodomest RGBIC · 3 côtés · v1.1.0 MediaProjection · 4–20 zones",16));
         LinearLayout panel=column();panel.setPadding(dp(15),dp(10),dp(15),dp(12));
         panel.setBackgroundColor(PANEL);add(root,panel);
         status=text("Arrêté",16);add(panel,status);
@@ -94,6 +102,14 @@ public final class MainActivity extends Activity {
         button(panel,"TESTER LE PALIER RGBIC SUIVANT",this::testNext);
         button(panel,"RÉTABLIR LE PROFIL VALIDÉ",this::restoreColors);
         button(panel,"COPIER / PARTAGER LE DIAGNOSTIC",this::exportDiagnostic);
+        button(panel,"CALIBRER LED ↔ ÉCRAN (ZONE PAR ZONE)",this::openCalibration);
+        button(panel,"TESTER L'EXTINCTION NOIRE DES LED",this::testBlack);
+        button(panel,"RÉGLAGES LUMINOSITÉ / COULEURS",this::showColorSettings);
+        add(panel,text("Couleurs des bordures calculées (ordre écran : droite → haut → gauche)",14));
+        sourceBar=new LinearLayout(this);sourceBar.setOrientation(LinearLayout.HORIZONTAL);add(panel,sourceBar);
+        add(panel,text("Couleurs transmises (ordre physique DP61)",14));
+        outputBar=new LinearLayout(this);outputBar.setOrientation(LinearLayout.HORIZONTAL);add(panel,outputBar);
+        add(panel,text("Les couleurs ci-dessus proviennent des derniers calculs, pas d'une caméra filmant le ruban.",12));
         add(panel,text("Capture de tout l'écran : accepter la demande Android à chaque session. Les contenus DRM/HDR peuvent rester impossibles à capturer. Aucun ADB.",14));
         button(root,"Configuration du boîtier / test initial ▾",()->{
             setup.setVisibility(setup.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE);
@@ -120,10 +136,9 @@ public final class MainActivity extends Activity {
         add(setup,text("Un test envoie réellement un motif au ruban. Il peut remplacer la scène Smart Life active.",13));
         setup.setVisibility(settings.approved()&&settings.hasSecret()?View.GONE:View.VISIBLE);
         add(root,setup);
-        button(root,"CORRIGER LE SENS DU RUBAN (SI NÉCESSAIRE)",()->{
-            boolean old=getSharedPreferences("ambilight_v05_options",MODE_PRIVATE).getBoolean("reverse",true);
-            getSharedPreferences("ambilight_v05_options",MODE_PRIVATE).edit().putBoolean("reverse",!old).apply();
-            notice(old?"Mapping DP61 direct activé.":"Mapping DP61 inversé rétabli.");
+        button(root,"INVERSER LE MAPPING DES ZONES (SI NÉCESSAIRE)",()->{
+            settings.reverseMapping(settings.zones());
+            notice("Mapping inversé et enregistré. Relancer la capture pour l'appliquer.");
         });
         message=text("",15);add(root,message);
         setContentView(scroll);
@@ -309,11 +324,17 @@ public final class MainActivity extends Activity {
             try(TuyaClient c=new TuyaClient(settings.id(),settings.ip(),settings.secret(),settings.version())){
                 JSONObject dps=c.status();
                 StringBuilder result=new StringBuilder("Données Tuya locales (lecture seule)\n");
-                String[] known={"20","21","24","61","107","108","109","110"};
-                for(String code:known)if(dps.has(code)){
-                    String val=String.valueOf(dps.get(code));
-                    if(val.length()>180)val=val.substring(0,180)+"… (tronqué)";
-                    result.append("DP").append(code).append(" = ").append(val).append('\n');
+                ArrayList<String> keys=new ArrayList<>();
+                Iterator<String> it=dps.keys();
+                while(it.hasNext())keys.add(it.next());
+                Collections.sort(keys,(a,b)->{
+                    try{return Integer.compare(Integer.parseInt(a),Integer.parseInt(b));}
+                    catch(NumberFormatException ex){return a.compareTo(b);}
+                });
+                for(String key:keys){
+                    String val=String.valueOf(dps.opt(key)).replaceAll("[\\r\\n\\t]"," ");
+                    if(val.length()>180)val=val.substring(0,180)+"… (valeur tronquée)";
+                    result.append("DP").append(key).append(" = ").append(val).append('\n');
                 }
                 result.append("DP disponibles : ").append(dps.length()).append('\n');
                 String msg=result.toString();
@@ -329,11 +350,14 @@ public final class MainActivity extends Activity {
         });
     }
     private String report(){
-        return "Ambilight TCL v1.0 / rapport sans identifiant ni Local Key\n"+
+        return "Ambilight TCL v1.1 / rapport sans Device ID ni Local Key\n"+
             "Android : "+Build.VERSION.RELEASE+"\n"+
             "Modèle Android : "+Build.MODEL+"\n"+
             "Firmware : "+Build.DISPLAY+"\n"+
             "Profil validé : "+settings.zones()+" zones\n"+
+            "Mapping DP61 : "+SegmentMapping.encode(settings.mapping(settings.zones()))+"\n"+
+            "Test extinction noire : "+settings.blackVerified()+"\n"+
+            "Luminosité / gamma : "+settings.colorConfig().brightness+"% / "+settings.colorConfig().gamma+"\n"+
             "Tuya protocole : "+settings.version()+"\n"+
             captureStatus()+"\n"+lastDiagnostic;
     }
@@ -353,6 +377,169 @@ public final class MainActivity extends Activity {
                 catch(Exception e){notice("Rapport copié. Aucune application de partage disponible.");}
             }).setNegativeButton("Fermer",null).show();
     }
+
+    /** Colors are diagnostic only: no captured images are ever stored. */
+    private void paintBar(LinearLayout root,String encoded){
+        if(root==null)return;
+        String[] values=encoded.isEmpty()?new String[0]:encoded.split(",");
+        root.removeAllViews();
+        if(values.length==0){TextView x=text("Aucun échantillon",12);add(root,x);return;}
+        for(String h:values){
+            if(!h.matches("[0-9A-Fa-f]{6}"))continue;
+            View cell=new View(this);
+            cell.setBackgroundColor(Color.rgb(Integer.parseInt(h.substring(0,2),16),
+                Integer.parseInt(h.substring(2,4),16),Integer.parseInt(h.substring(4,6),16)));
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(25),1);
+            lp.setMargins(dp(1),dp(2),dp(1),dp(2));
+            root.addView(cell,lp);
+        }
+    }
+
+    /** Physical calibration: show exactly one red physical segment, all other segments dim blue.
+     * The user assigns its position on the screen (bijection maintained by swaps).
+     * No physical strip resizing or unknown Tuya DP is touched.
+     */
+    private void openCalibration(){
+        if(!ready())return;
+        if(!settings.approved()){error("Valider d'abord le test de quatre couleurs.");return;}
+        CaptureService.stop(this);
+        final int n=settings.zones();
+        final int[] index={0},chosen={settings.mapping(n)[0]};
+        LinearLayout body=column();
+        body.setPadding(dp(20),dp(8),dp(20),dp(8));
+        TextView label=text("",17);add(body,label);
+        TextView hint=text("Observe le segment ROUGE derrière la TV. Ajuste sa position logique avec les boutons, puis associe-la. Les autres restent bleu faible. Le mapping initial conserve l'orientation déjà validée.",14);add(body,hint);
+        TextView state=text("",15);add(body,state);
+        Button prev=button(body,"LED PHYSIQUE PRÉCÉDENTE",()->{
+            index[0]=(index[0]+n-1)%n;
+            chosen[0]=settings.mapping(n)[index[0]];
+            updateCalibrationLabel(label,state,index[0],chosen[0],n);
+            sendCalibrationPattern(n,index[0],state);
+        });
+        Button next=button(body,"LED PHYSIQUE SUIVANTE",()->{
+            index[0]=(index[0]+1)%n;
+            chosen[0]=settings.mapping(n)[index[0]];
+            updateCalibrationLabel(label,state,index[0],chosen[0],n);
+            sendCalibrationPattern(n,index[0],state);
+        });
+        button(body,"POSITION ÉCRAN ←",()->{
+            chosen[0]=(chosen[0]+n-1)%n;
+            updateCalibrationLabel(label,state,index[0],chosen[0],n);
+        });
+        button(body,"POSITION ÉCRAN →",()->{
+            chosen[0]=(chosen[0]+1)%n;
+            updateCalibrationLabel(label,state,index[0],chosen[0],n);
+        });
+        button(body,"ASSOCIER CE SEGMENT À LA POSITION CHOISIE",()->{
+            try{
+                settings.assignSegment(n,index[0],chosen[0]);
+                updateCalibrationLabel(label,state,index[0],chosen[0],n);
+                state.setText("Position enregistrée. Si elle était déjà occupée, les deux associations ont été échangées.");
+            }catch(Exception ex){error("Mapping : "+ex.getMessage());}
+        });
+        button(body,"RÉINITIALISER LE MAPPING DE CE PROFIL",()->{
+            new AlertDialog.Builder(this).setTitle("Réinitialiser le mapping ?")
+                .setMessage("Retrouver l'ordre inversé historiquement validé sur ce ruban ?")
+                .setPositiveButton("Réinitialiser",(d,w)->{
+                    settings.resetMapping(n);chosen[0]=settings.mapping(n)[index[0]];
+                    updateCalibrationLabel(label,state,index[0],chosen[0],n);
+                }).setNegativeButton("Annuler",null).show();
+        });
+        ScrollView sc=new ScrollView(this);sc.addView(body);
+        AlertDialog dialog=new AlertDialog.Builder(this)
+            .setTitle("Calibration LED / écran · "+n+" zones")
+            .setView(sc).setPositiveButton("TERMINER",(d,w)->
+                notice("Calibration enregistrée. Relancer MediaProjection pour appliquer le mapping."))
+            .create();
+        dialog.show();
+        updateCalibrationLabel(label,state,index[0],chosen[0],n);
+        sendCalibrationPattern(n,index[0],state);
+    }
+    private void updateCalibrationLabel(TextView label,TextView state,int physical,int logical,int n){
+        label.setText("LED DP61 n° "+(physical+1)+"/"+n+
+            "\nPosition écran sélectionnée : n° "+(logical+1)+"/"+n+
+            "\n"+SegmentMapping.label(logical,n));
+        state.setText("Ordre enregistré : "+SegmentMapping.encode(settings.mapping(n)));
+    }
+    private void sendCalibrationPattern(int n,int physical,TextView state){
+        if(!ready())return;
+        int[][] pattern=new int[n][3];
+        for(int i=0;i<n;i++)pattern[i]=new int[]{0,0,22};
+        pattern[physical]=new int[]{255,0,0};
+        jobs.execute(()->{
+            try(TuyaClient tuya=new TuyaClient(settings.id(),settings.ip(),settings.secret(),settings.version())){
+                tuya.setFourColors(pattern,settings.uiSegments());
+                runOnUiThread(()->state.setText("Test émis · LED physique "+(physical+1)+"/"+n+
+                    " · repère la zone rouge et associe sa position."));
+            }catch(Exception ex){
+                runOnUiThread(()->state.setText("Test LED refusé : "+ex.getClass().getSimpleName()+" "+ex.getMessage()));
+            }
+        });
+    }
+    /** A fully black command has NOT been proven on the physical model yet. */
+    private void testBlack(){
+        if(!ready())return;
+        CaptureService.stop(this);
+        new AlertDialog.Builder(this).setTitle("Test d'extinction par zone")
+            .setMessage("Cette commande envoie 0 sur toutes les zones RGBIC. Elle remplace l'ambiance en cours. Confirme uniquement si les LED s'éteignent réellement.")
+            .setPositiveButton("Envoyer le noir",(d,w)->{
+                final int n=settings.zones();
+                jobs.execute(()->{
+                    try(TuyaClient c=new TuyaClient(settings.id(),settings.ip(),settings.secret(),settings.version())){
+                        c.setFourColors(ColorEngine.black(n),settings.uiSegments());
+                        runOnUiThread(()->new AlertDialog.Builder(this).setTitle("Extinction réelle ?")
+                            .setMessage("Les LED sont-elles physiquement TOUTES éteintes ? Cette validation autorise l'extinction en cas de capture perdue ou d'arrêt.")
+                            .setPositiveButton("Oui, tout est éteint",(a,b)->{
+                                settings.setBlackVerified(true);
+                                notice("Extinction RGBIC vérifiée. Elle sera utilisée en cas d'image manquante ou d'arrêt.");
+                            }).setNegativeButton("Non",(a,b)->{
+                                settings.setBlackVerified(false);
+                                notice("Noir RGBIC non validé : aucune promesse d'extinction de sécurité.");
+                            }).show());
+                    }catch(Exception ex){
+                        runOnUiThread(()->error("Test extinction : "+ex.getClass().getSimpleName()+" "+ex.getMessage()));
+                    }
+                });
+            }).setNegativeButton("Annuler",null).show();
+    }
+    private Spinner choice(LinearLayout body,String label,String[] options,String selected){
+        add(body,text(label,15));
+        Spinner spinner=new Spinner(this);
+        ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,options);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        for(int i=0;i<options.length;i++)if(options[i].equals(selected))spinner.setSelection(i);
+        add(body,spinner);return spinner;
+    }
+    private static int number(Spinner s){return Integer.parseInt(s.getSelectedItem().toString());}
+    private void showColorSettings(){
+        ColorEngine.Config config=settings.colorConfig();
+        LinearLayout body=column();body.setPadding(dp(20),dp(8),dp(20),dp(8));
+        add(body,text("Appliquer les modifications en redémarrant MediaProjection. Aucun minimum lumineux forcé : une zone noire peut s'éteindre.",14));
+        Spinner bright=choice(body,"Luminosité maximale (%)",new String[]{"20","35","50","65","75","85","100"},""+config.brightness);
+        Spinner black=choice(body,"Seuil de noir RGB (0–10)",new String[]{"0","2","4","6","10"},""+config.black);
+        String[] gammaValues={"0.8","1.0","1.2","1.4","1.6","2.0"};
+        Spinner gamma=choice(body,"Gamma LED",gammaValues,Double.toString(config.gamma));
+        Spinner smooth=choice(body,"Lissage (0 rapide, 90 doux)",new String[]{"0","20","45","70","90"},""+config.smooth);
+        String[] gains={"80","90","100","110","120"};
+        Spinner r=choice(body,"Gain rouge (%)",gains,""+config.red);
+        Spinner g=choice(body,"Gain vert (%)",gains,""+config.green);
+        Spinner b=choice(body,"Gain bleu (%)",gains,""+config.blue);
+        CheckBox off=new CheckBox(this);off.setText("Éteindre les LED à l'arrêt (si noir validé)");
+        off.setTextColor(Color.WHITE);off.setChecked(settings.blackOnStop());add(body,off);
+        ScrollView sc=new ScrollView(this);sc.addView(body);
+        new AlertDialog.Builder(this).setTitle("Calibration couleur / luminosité")
+            .setView(sc).setPositiveButton("ENREGISTRER",(dialog,button)->{
+                try{
+                    ColorEngine.Config updated=new ColorEngine.Config(number(bright),number(black),
+                        number(r),number(g),number(b),Double.parseDouble((String)gamma.getSelectedItem()),
+                        number(smooth));
+                    settings.setColorConfig(updated);settings.setBlackOnStop(off.isChecked());
+                    notice("Paramètres enregistrés. Arrêter puis relancer MediaProjection pour les appliquer.");
+                }catch(Exception ex){error("Paramètres incorrects : "+ex.getMessage());}
+            }).setNegativeButton("Annuler",null).show();
+    }
+
     @Override protected void onDestroy(){
         handler.removeCallbacks(refresh);jobs.shutdownNow();super.onDestroy();
     }
