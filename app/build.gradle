@@ -6,8 +6,8 @@ android {
         applicationId 'fr.ambilight.eurodomest.autonome'
         minSdk 26
         targetSdk 35
-        versionCode 12
-        versionName '1.1.0-calibration'
+        versionCode 13
+        versionName '1.2.0-standby'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

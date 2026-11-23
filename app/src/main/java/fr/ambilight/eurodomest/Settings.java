@@ -66,6 +66,20 @@ public final class Settings {
             .putInt("color_blue",c.blue).putInt("color_gamma10",(int)Math.round(c.gamma*10))
             .putInt("color_smooth",c.smooth).commit();
     }
+    /** When the foreground MediaProjection service observes Android entering standby,
+     * send DP20=false. No black-DP61 prerequisite: this is the real Tuya switch.
+     */
+    public boolean offOnTvStandby(){return pref.getBoolean("off_on_tv_standby",true);}
+    public void setOffOnTvStandby(boolean enabled){
+        if(!pref.edit().putBoolean("off_on_tv_standby",enabled).commit())
+            throw new IllegalStateException("Enregistrement de la veille impossible");
+    }
+    public String lastStandbyStatus(){
+        return pref.getString("last_standby_status","Aucun arrêt TV observé depuis cette installation");
+    }
+    public void setLastStandbyStatus(String status){
+        pref.edit().putString("last_standby_status",status).apply();
+    }
     public boolean blackVerified(){return pref.getBoolean("black_verified",false);}
     public void setBlackVerified(boolean verified){
         pref.edit().putBoolean("black_verified",verified).commit();

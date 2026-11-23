@@ -7,6 +7,9 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.pm.ServiceInfo;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
@@ -19,6 +22,8 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.content.SharedPreferences;
 import java.nio.ByteBuffer;
@@ -53,6 +58,18 @@ public final class CaptureService extends Service {
     private volatile int consecutiveErrors;
     private volatile boolean blackConfirmed;
     private volatile boolean stopBlack;
+    private volatile boolean sleepOffRequested;
+    private volatile boolean sleepOffFinished;
+    private boolean screenReceiverRegistered;
+    private PowerManager.WakeLock sleepWakeLock;
+    private final Handler lifecycleHandler=new Handler(Looper.getMainLooper());
+    private final BroadcastReceiver screenReceiver=new BroadcastReceiver(){
+        @Override public void onReceive(Context context,Intent intent){
+            String action=intent==null?null:intent.getAction();
+            if(Intent.ACTION_SCREEN_OFF.equals(action))requestStandbyShutdown("SCREEN_OFF Android");
+            else if(Intent.ACTION_SHUTDOWN.equals(action))requestStandbyShutdown("Arrêt Android");
+        }
+    };
 
     public static void start(android.content.Context context,int code,Intent result){
         Intent intent=new Intent(context,CaptureService.class).setAction(START)
@@ -62,7 +79,73 @@ public final class CaptureService extends Service {
     public static void stop(android.content.Context context){
         context.startService(new Intent(context,CaptureService.class).setAction(STOP));
     }
-    @Override public void onCreate(){super.onCreate();cfg=new Settings(this);}
+    @Override public void onCreate(){
+        super.onCreate();cfg=new Settings(this);
+        IntentFilter screenFilter=new IntentFilter();
+        screenFilter.addAction(Intent.ACTION_SCREEN_OFF);
+        screenFilter.addAction(Intent.ACTION_SHUTDOWN);
+        // Android 14: broadcasts sent by the system can use a context-registered receiver without export flags.
+        registerReceiver(screenReceiver,screenFilter);
+        screenReceiverRegistered=true;
+    }
+    private void requestStandbyShutdown(String reason){
+        if(!running||sleepOffRequested)return;
+        if(!cfg.offOnTvStandby()){
+            state="Mise en veille détectée : extinction automatique désactivée";
+            save();stopSelf();return;
+        }
+        synchronized(this){
+            if(!running||sleepOffRequested)return;
+            sleepOffRequested=true;
+            running=false;
+            state="Veille détectée ("+reason+") : extinction totale DP20 en cours";
+            cfg.setLastStandbyStatus(state);
+            save();
+            try{
+                PowerManager power=(PowerManager)getSystemService(POWER_SERVICE);
+                sleepWakeLock=power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"AmbilightTCL:standbyOff");
+                sleepWakeLock.acquire(15000); // only keep CPU briefly awake to finish local Tuya DP20=false
+            }catch(Exception ignored){}
+        }
+        if(writer!=null){
+            if(Thread.currentThread()!=writer)writer.interrupt();
+        }else{
+            Thread fallback=new Thread(()->{
+                sendStandbyPowerOff(null);
+                finishStandbyStop();
+            },"Ambilight-Sleep-Off");
+            fallback.start();
+        }
+    }
+    private void releaseSleepWakeLock(){
+        PowerManager.WakeLock lock=sleepWakeLock;
+        sleepWakeLock=null;
+        if(lock!=null&&lock.isHeld())try{lock.release();}catch(RuntimeException ignored){}
+    }
+    private void sendStandbyPowerOff(TuyaClient original){
+        if(sleepOffFinished)return;
+        TuyaClient c=original;
+        boolean success=false;
+        for(int attempt=1;attempt<=2&&!success;attempt++){
+            try{
+                if(c==null)c=new TuyaClient(cfg.id(),cfg.ip(),cfg.secret(),cfg.version());
+                c.setPower(false); // DP20=false: full controller LED switch-off, not black RGBIC
+                success=true;
+                state="Veille TCL : DP20=false acquitté par Eurodomest";
+            }catch(Exception e){
+                state="Veille TCL : tentative "+attempt+" échouée ("+e.getClass().getSimpleName()+")";
+                if(c!=null){c.close();c=null;}
+            }
+        }
+        if(c!=null)c.close();
+        sleepOffFinished=true;
+        cfg.setLastStandbyStatus(state);
+        save();
+    }
+    private void finishStandbyStop(){
+        releaseSleepWakeLock();
+        lifecycleHandler.post(this::stopSelf);
+    }
     @Override public int onStartCommand(Intent intent,int flags,int startId){
         if(intent==null||STOP.equals(intent.getAction())){state="Arrêt demandé";save();stopSelf();return START_NOT_STICKY;}
         if(!START.equals(intent.getAction())||running){return START_NOT_STICKY;}
@@ -83,6 +166,7 @@ public final class CaptureService extends Service {
             startForeground(NOTIFICATION_ID,notification,ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
         else startForeground(NOTIFICATION_ID,notification);
         running=true;
+        sleepOffRequested=false;sleepOffFinished=false;
         zones=cfg.zones();mapping=cfg.mapping(zones);colorConfig=cfg.colorConfig();
         blackConfirmed=cfg.blackVerified();stopBlack=cfg.blackOnStop();
         try{
@@ -98,8 +182,23 @@ public final class CaptureService extends Service {
             captureHandler=new Handler(captureThread.getLooper());
             projection.registerCallback(new MediaProjection.Callback(){
                 @Override public void onStop(){
-                    state="Projection Android arrêtée; autorisation nécessaire pour reprendre";
-                    save();stopSelf();
+                    if(sleepOffRequested||!running)return;
+                    PowerManager power=(PowerManager)getSystemService(POWER_SERVICE);
+                    if(power!=null&&!power.isInteractive()){
+                        requestStandbyShutdown("MediaProjection arrêtée avec écran en veille");
+                        return;
+                    }
+                    // The system may stop projection just before SCREEN_OFF on some TVs.
+                    lifecycleHandler.postDelayed(()->{
+                        if(sleepOffRequested||!running)return;
+                        PowerManager current=(PowerManager)getSystemService(POWER_SERVICE);
+                        if(current!=null&&!current.isInteractive())
+                            requestStandbyShutdown("Projection arrêtée, TV non interactive");
+                        else{
+                            state="Projection Android terminée; rouvrir Ambilight pour reprendre";
+                            save();stopSelf();
+                        }
+                    },350);
                 }
             },captureHandler);
             reader=ImageReader.newInstance(WIDTH,HEIGHT,PixelFormat.RGBA_8888,3);
@@ -166,6 +265,13 @@ public final class CaptureService extends Service {
             while(running){
                 try{Thread.sleep(20);}catch(InterruptedException ex){break;}
                 long now=SystemClock.elapsedRealtime();
+                if(cfg.offOnTvStandby()&&!sleepOffRequested){
+                    PowerManager power=(PowerManager)getSystemService(POWER_SERVICE);
+                    if(power!=null&&!power.isInteractive()){
+                        requestStandbyShutdown("TV non interactive (contrôle périodique)");
+                        continue;
+                    }
+                }
                 if(now-lastReport>=1300){save();lastReport=now;}
                 if(now<retryUntil)continue;
                 FrameAnalyzer.Colors frame=latest;
@@ -200,7 +306,10 @@ public final class CaptureService extends Service {
                 int[][] output=ColorEngine.temporal(previous,ordered,colorConfig.smooth);
                 if(!ColorEngine.sendNeeded(previous,output))continue;
                 try{
-                    if(client==null)client=new TuyaClient(cfg.id(),cfg.ip(),cfg.secret(),cfg.version());
+                    if(client==null){
+                        client=new TuyaClient(cfg.id(),cfg.ip(),cfg.secret(),cfg.version());
+                        client.setPower(true); // Reactivate LEDs on a newly authorized capture session.
+                    }
                     lastWrite=SystemClock.elapsedRealtime();
                     client.setFourColors(output,cfg.uiSegments());
                     ackMs=SystemClock.elapsedRealtime()-lastWrite;
@@ -218,6 +327,12 @@ public final class CaptureService extends Service {
                 }
             }
         }finally{
+            // Standby has priority over the DP61 black-on-manual-stop policy.
+            if(sleepOffRequested){
+                sendStandbyPowerOff(client);
+                finishStandbyStop();
+                return;
+            }
             // Best-effort, never pretend off succeeded on an unverified device.
             if(client!=null){
                 if(stopBlack&&sent>0){
@@ -250,6 +365,11 @@ public final class CaptureService extends Service {
     }
     @Override public void onDestroy(){
         running=false;
+        if(screenReceiverRegistered){
+            try{unregisterReceiver(screenReceiver);}catch(IllegalArgumentException ignored){}
+            screenReceiverRegistered=false;
+        }
+        if(!sleepOffRequested)releaseSleepWakeLock();
         if(writer!=null)writer.interrupt();
         if(reader!=null)reader.setOnImageAvailableListener(null,null);
         if(display!=null){display.release();display=null;}

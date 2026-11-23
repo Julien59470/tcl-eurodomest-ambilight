@@ -127,6 +127,26 @@ public final class TuyaClient implements AutoCloseable {
         sendRaw(cmd,message.toString().getBytes(StandardCharsets.UTF_8));
         waitPacket(cmd,sessionKey);
     }
+    /** DP20 switch_led is the actual controller power state.
+     * Unlike DP61 black, false requests full LED switch-off.
+     */
+    public synchronized void setPower(boolean on) throws Exception {
+        open();
+        JSONObject dps=new JSONObject().put("20",on);
+        int cmd=version==33?7:13;
+        JSONObject message;
+        if(version==33)
+            message=new JSONObject().put("devId",id).put("uid",id)
+                .put("t",Long.toString(System.currentTimeMillis()/1000))
+                .put("dps",dps);
+        else
+            message=new JSONObject().put("protocol",5)
+                .put("t",System.currentTimeMillis()/1000)
+                .put("data",new JSONObject().put("dps",dps));
+        sendRaw(cmd,message.toString().getBytes(StandardCharsets.UTF_8));
+        waitPacket(cmd,sessionKey);
+    }
+
     public synchronized void restore(JSONObject before) throws Exception {
         if(before==null||!before.has("20"))throw new IOException("Ancien état non disponible");
         JSONObject dps=new JSONObject();

@@ -88,7 +88,7 @@ public final class MainActivity extends Activity {
         LinearLayout root=column();root.setPadding(dp(28),dp(12),dp(28),dp(24));
         scroll.addView(root);
         TextView heading=text("AMBILIGHT TCL",29);heading.setTextColor(ACCENT);add(root,heading);
-        add(root,text("Eurodomest RGBIC · 3 côtés · v1.1.0 MediaProjection · 4–20 zones",16));
+        add(root,text("Eurodomest RGBIC · 3 côtés · v1.2.0 MediaProjection · 4–20 zones",16));
         LinearLayout panel=column();panel.setPadding(dp(15),dp(10),dp(15),dp(12));
         panel.setBackgroundColor(PANEL);add(root,panel);
         status=text("Arrêté",16);add(panel,status);
@@ -96,6 +96,8 @@ public final class MainActivity extends Activity {
         button(panel,"ARRÊTER LA SYNCHRONISATION",()->{
             CaptureService.stop(this);notice("Arrêt demandé.");
         });
+        button(panel,"TESTER L’EXTINCTION TOTALE DES LED (DP20)",this::testStandbyPower);
+        button(panel,"RALLUMER LES LED (DP20)",()->sendPowerManually(true));
         zoneState=text("Profil RGBIC validé : "+settings.zones()+" zones",16);add(panel,zoneState);
         button(panel,"SAISIR LA LOCAL KEY (CLAVIER TV)",this::editLocalKey);
         button(panel,"DIAGNOSTIC TUYA (LECTURE SEULE)",this::readTuyaStatus);
@@ -242,6 +244,7 @@ public final class MainActivity extends Activity {
             try{
                 Thread.sleep(260);
                 try(TuyaClient c=new TuyaClient(settings.id(),settings.ip(),settings.secret(),settings.version())){
+                    c.setPower(true);
                     c.setFourColors(colors(n),settings.uiSegments());
                 }
                 runOnUiThread(after);
@@ -357,6 +360,8 @@ public final class MainActivity extends Activity {
             "Profil validé : "+settings.zones()+" zones\n"+
             "Mapping DP61 : "+SegmentMapping.encode(settings.mapping(settings.zones()))+"\n"+
             "Test extinction noire : "+settings.blackVerified()+"\n"+
+            "Extinction totale à la veille : "+settings.offOnTvStandby()+"\n"+
+            "Dernier événement de veille : "+settings.lastStandbyStatus()+"\n"+
             "Luminosité / gamma : "+settings.colorConfig().brightness+"% / "+settings.colorConfig().gamma+"\n"+
             "Tuya protocole : "+settings.version()+"\n"+
             captureStatus()+"\n"+lastDiagnostic;
@@ -376,6 +381,41 @@ public final class MainActivity extends Activity {
                 try{startActivity(Intent.createChooser(share,"Partager le diagnostic"));}
                 catch(Exception e){notice("Rapport copié. Aucune application de partage disponible.");}
             }).setNegativeButton("Fermer",null).show();
+    }
+
+    private void testStandbyPower(){
+        if(!ready())return;
+        new AlertDialog.Builder(this).setTitle("Tester la vraie extinction Eurodomest")
+            .setMessage("Le test arrête l'Ambilight et envoie switch_led=false (DP20) au boîtier Tuya. Toutes les LED doivent s'éteindre. Tu pourras les rallumer ici ou dans Smart Life.")
+            .setPositiveButton("ÉTEINDRE",(dialog,which)->sendPowerManually(false))
+            .setNegativeButton("Annuler",null).show();
+    }
+
+    private void sendPowerManually(boolean powerOn){
+        if(!ready())return;
+        CaptureService.stop(this);
+        notice((powerOn?"Allumage":"Extinction totale")+" demandée au boîtier...");
+        jobs.execute(()->{
+            try{
+                // Let the outgoing capture loop release its active Tuya socket.
+                Thread.sleep(350);
+                try(TuyaClient tuya=new TuyaClient(settings.id(),settings.ip(),settings.secret(),settings.version())){
+                    tuya.setPower(powerOn);
+                    if(powerOn){
+                        int n=settings.zones();
+                        int[][] pattern=new int[n][3];
+                        for(int i=0;i<n;i++)pattern[i]=new int[]{0,0,20};
+                        tuya.setFourColors(pattern,settings.uiSegments());
+                    }
+                }
+                runOnUiThread(()->notice(powerOn?
+                    "DP20=true acquitté : ruban rallumé, motif bleu faible transmis.":
+                    "DP20=false acquitté : vérifie que toutes les LED sont réellement éteintes."));
+            }catch(Exception ex){
+                String why=ex.getClass().getSimpleName()+" "+ex.getMessage();
+                runOnUiThread(()->error("Commande DP20 : "+why));
+            }
+        });
     }
 
     /** Colors are diagnostic only: no captured images are ever stored. */
@@ -468,6 +508,7 @@ public final class MainActivity extends Activity {
         pattern[physical]=new int[]{255,0,0};
         jobs.execute(()->{
             try(TuyaClient tuya=new TuyaClient(settings.id(),settings.ip(),settings.secret(),settings.version())){
+                tuya.setPower(true);
                 tuya.setFourColors(pattern,settings.uiSegments());
                 runOnUiThread(()->state.setText("Test émis · LED physique "+(physical+1)+"/"+n+
                     " · repère la zone rouge et associe sa position."));
@@ -486,6 +527,7 @@ public final class MainActivity extends Activity {
                 final int n=settings.zones();
                 jobs.execute(()->{
                     try(TuyaClient c=new TuyaClient(settings.id(),settings.ip(),settings.secret(),settings.version())){
+                        c.setPower(true);
                         c.setFourColors(ColorEngine.black(n),settings.uiSegments());
                         runOnUiThread(()->new AlertDialog.Builder(this).setTitle("Extinction réelle ?")
                             .setMessage("Les LED sont-elles physiquement TOUTES éteintes ? Cette validation autorise l'extinction en cas de capture perdue ou d'arrêt.")
@@ -525,6 +567,11 @@ public final class MainActivity extends Activity {
         Spinner r=choice(body,"Gain rouge (%)",gains,""+config.red);
         Spinner g=choice(body,"Gain vert (%)",gains,""+config.green);
         Spinner b=choice(body,"Gain bleu (%)",gains,""+config.blue);
+        CheckBox standby=new CheckBox(this);
+        standby.setText("Éteindre COMPLÈTEMENT le ruban à la veille de la TCL (DP20)");
+        standby.setTextColor(Color.WHITE);
+        standby.setChecked(settings.offOnTvStandby());add(body,standby);
+        add(body,text("Fonctionne pendant une session Ambilight active. Si Android met le réseau en veille trop tôt, une commande réseau ne peut pas être garantie.",13));
         CheckBox off=new CheckBox(this);off.setText("Éteindre les LED à l'arrêt (si noir validé)");
         off.setTextColor(Color.WHITE);off.setChecked(settings.blackOnStop());add(body,off);
         ScrollView sc=new ScrollView(this);sc.addView(body);
@@ -535,6 +582,7 @@ public final class MainActivity extends Activity {
                         number(r),number(g),number(b),Double.parseDouble((String)gamma.getSelectedItem()),
                         number(smooth));
                     settings.setColorConfig(updated);settings.setBlackOnStop(off.isChecked());
+                    settings.setOffOnTvStandby(standby.isChecked());
                     notice("Paramètres enregistrés. Arrêter puis relancer MediaProjection pour les appliquer.");
                 }catch(Exception ex){error("Paramètres incorrects : "+ex.getMessage());}
             }).setNegativeButton("Annuler",null).show();
